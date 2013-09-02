@@ -594,6 +594,20 @@ static struct stream *find_named_stream(struct config_mgr *cm,
     return NULL;
 }
 
+static bool open_stream_l(struct config_mgr *cm, struct stream *s)
+{
+    if (s->ref_count < s->max_ref_count) {
+        ++s->ref_count;
+        if (s->ref_count == 1) {
+            apply_paths_to_global_l(cm, e_path_id_on, s->enable_path);
+        }
+        return true;
+    } else {
+        ALOGV("stream at maximum refcount %d", s->ref_count);
+        return false;
+    }
+}
+
 const struct hw_stream *get_stream(struct config_mgr *cm,
                                    const audio_devices_t devices,
                                    const audio_output_flags_t flags,
@@ -618,16 +632,11 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
         ALOGV("get_stream: require type=%d; try type=%d refcount=%d refmax=%d",
                     type, s[i].info.type, s[i].ref_count, s[i].max_ref_count );
         if (s[i].info.type == type) {
-            if (s[i].ref_count < s[i].max_ref_count) {
-                ++s[i].ref_count;
-                if (s[i].ref_count == 1) {
-                    apply_paths_to_global_l(cm, e_path_id_on, s[i].enable_path);
-                }
+            if (open_stream_l(cm, &s[i])) {
                 break;
             }
         }
     }
-
     pthread_mutex_unlock(&cm->lock);
 
     if (i >= 0) {
@@ -653,13 +662,7 @@ const struct hw_stream *get_named_stream(struct config_mgr *cm,
 
     pthread_mutex_lock(&cm->lock);
     if (s != NULL) {
-        if (s->ref_count < s->max_ref_count) {
-            ++s->ref_count;
-            if (s->ref_count == 1) {
-                apply_paths_to_global_l(cm, e_path_id_on, s->enable_path);
-            }
-        } else {
-            ALOGV("stream '%s' at maximum refcount %d", name, s->ref_count);
+        if (!open_stream_l(cm, s)) {
             s = NULL;
         }
     }
