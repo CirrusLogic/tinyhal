@@ -952,7 +952,7 @@ static int do_open_compress_pcm_in(struct stream_in_pcm *in)
     memset(&codec, 0, sizeof(codec));
     codec.id = SND_AUDIOCODEC_PCM;
     codec.ch_in = in->common.channel_count;
-    codec.sample_rate = compress_get_alsa_rate(in->common.sample_rate);
+    codec.sample_rate = in->common.sample_rate;
     codec.format = SNDRV_PCM_FORMAT_S16_LE;
 
     /* Fragment and buffer sizes should be configurable or auto-detected
