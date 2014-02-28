@@ -393,7 +393,8 @@ static void do_close_out_common(struct audio_stream *stream)
 }
 
 static int do_init_out_common( struct stream_out_common *out,
-                                    const struct audio_config *config )
+                                    const struct audio_config *config,
+                                    audio_devices_t devices )
 {
     int ret;
 
@@ -426,6 +427,9 @@ static int do_init_out_common( struct stream_out_common *out,
 
     /* Default settings */
     out->frame_size = audio_stream_frame_size(&out->stream.common);
+
+    /* Apply initial route */
+    apply_route(out->hw, devices);
 
     return 0;
 }
@@ -723,7 +727,8 @@ static void do_close_in_common(struct audio_stream *stream)
 }
 
 static int do_init_in_common( struct stream_in_common *in,
-                                const struct audio_config *config )
+                                const struct audio_config *config,
+                                audio_devices_t devices )
 {
     in->standby = true;
 
@@ -753,6 +758,9 @@ static int do_init_in_common( struct stream_in_common *in,
     in->channel_count = popcount(in->channel_mask);
 
     in->frame_size = audio_stream_frame_size(&in->stream.common);
+
+    /* Apply initial routing */
+    apply_route(in->hw, devices);
 
     return 0;
 }
@@ -1754,7 +1762,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
 
     out.common->dev = adev;
     out.common->hw = hw;
-    ret = do_init_out_common( out.common, config );
+    ret = do_init_out_common( out.common, config, devices );
     if (ret < 0) {
         goto err_open;
     }
@@ -1828,7 +1836,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 
     in->common.dev = adev;
     in->common.hw = hw;
-    ret = do_init_in_common( &in->common, config );
+    ret = do_init_in_common( &in->common, config, devices );
     if (ret < 0) {
         goto fail;
     }
