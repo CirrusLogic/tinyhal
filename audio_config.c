@@ -526,7 +526,12 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
     struct stream *s = (struct stream *)stream;
     int ret = -ENOSYS;
 
+
     if (s->controls.volume_left.ctl) {
+        if (!s->controls.volume_right.ctl) {
+            /* Control is mono so average left and right */
+            left_pc = (left_pc + right_pc) / 2;
+        }
         mixer_ctl_set_percent(s->controls.volume_left.ctl,
                                 s->controls.volume_left.id,
                                 left_pc);
