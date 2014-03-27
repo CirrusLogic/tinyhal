@@ -666,8 +666,8 @@ void release_stream( const struct hw_stream* stream )
             apply_paths_to_devices_l(s->cm, s->current_devices,
                                     e_path_id_off, s->disable_path);
             apply_paths_to_global_l(s->cm, s->disable_path, e_path_id_off);
+            s->current_devices = 0;
         }
-        s->current_devices = 0;
         pthread_mutex_unlock(&s->cm->lock);
     }
 }
