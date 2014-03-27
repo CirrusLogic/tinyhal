@@ -119,6 +119,14 @@ struct usecase {
 struct stream_control {
     struct mixer_ctl    *ctl;
     uint                id;
+    uint                min;
+    uint                max;
+};
+
+struct volume_control {
+    struct stream_control control;
+    uint min;
+    uint max;
 };
 
 struct stream {
@@ -195,6 +203,8 @@ enum attrib_index {
     e_attrib_rate,
     e_attrib_period_size,
     e_attrib_period_count,
+    e_attrib_min,
+    e_attrib_max,
 
     e_attrib_count
 };
@@ -521,27 +531,47 @@ void rotate_routes( struct config_mgr *cm, int orientation )
  * Stream control
  *********************************************************************/
 
+static int set_vol_ctl( const struct stream_control *volctl, uint percent)
+{
+    uint val;
+    uint range;
+
+    switch (percent) {
+    case 0:
+        val = volctl->min;
+        break;
+
+    case 100:
+        val = volctl->max;
+        break;
+
+    default:
+        range = volctl->max - volctl->min;
+        val = volctl->min + ((percent * range)/100);
+        break;
+    }
+
+    ALOGW("set '%s' = %u", mixer_ctl_get_name(volctl->ctl), val);
+    mixer_ctl_set_value(volctl->ctl, volctl->id, val);
+    return 0;
+}
+
 int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
 {
     struct stream *s = (struct stream *)stream;
     int ret = -ENOSYS;
-
 
     if (s->controls.volume_left.ctl) {
         if (!s->controls.volume_right.ctl) {
             /* Control is mono so average left and right */
             left_pc = (left_pc + right_pc) / 2;
         }
-        mixer_ctl_set_percent(s->controls.volume_left.ctl,
-                                s->controls.volume_left.id,
-                                left_pc);
-        ret = 0;
+
+        ret = set_vol_ctl(&s->controls.volume_left, left_pc);
     }
+
     if (s->controls.volume_right.ctl) {
-        mixer_ctl_set_percent(s->controls.volume_right.ctl,
-                                s->controls.volume_right.id,
-                                right_pc);
-        ret = 0;
+        ret = set_vol_ctl(&s->controls.volume_right, right_pc);
     }
 
     ALOGV_IF(ret == 0, "set_hw_volume: L=%d%% R=%d%%", left_pc, right_pc);
@@ -835,7 +865,8 @@ static const struct parse_element elem_table[e_elem_count] = {
     [e_elem_stream_ctl] =    {
         .name = "ctl",
         .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_function)
-                            | BIT(e_attrib_index),
+                            | BIT(e_attrib_index)
+                            | BIT(e_attrib_min) | BIT(e_attrib_max),
         .required_attribs = BIT(e_attrib_name) | BIT(e_attrib_function),
         .valid_subelem = 0,
         .start_fn = parse_stream_ctl_start,
@@ -883,8 +914,10 @@ static const struct parse_attrib attrib_table[e_attrib_count] = {
     [e_attrib_instances] =  {"instances"},
     [e_attrib_rate] =       {"rate"},
     [e_attrib_period_size] = {"period_size"},
-    [e_attrib_period_count] = {"period_count"}
-};
+    [e_attrib_period_count] = {"period_count"},
+    [e_attrib_min] = {"min"},
+    [e_attrib_max] = {"max"}
+ };
 
 static const struct parse_device device_table[] = {
     {"global",      0}, /* special dummy device for global settings */
@@ -1522,7 +1555,10 @@ static int parse_stream_ctl_start(struct parse_state *state)
     const char *function = state->attribs.value[e_attrib_function];
     const char *index = state->attribs.value[e_attrib_index];
     struct mixer_ctl *ctl;
+    struct stream_control *streamctl;
     uint idx_val = 0;
+    uint32_t v;
+    int r;
 
     ctl = mixer_get_ctl_by_name(state->cm->mixer, name);
     if (!ctl) {
@@ -1539,21 +1575,59 @@ static int parse_stream_ctl_start(struct parse_state *state)
     if (0 == strcmp(function, "leftvol")) {
         ALOGE_IF(state->current.stream->controls.volume_left.ctl,
                                 "Left volume control specified again");
-        state->current.stream->controls.volume_left.ctl = ctl;
-        state->current.stream->controls.volume_left.id = idx_val;
-
+        streamctl = &(state->current.stream->controls.volume_left);
     } else if (0 == strcmp(function, "rightvol")) {
         ALOGE_IF(state->current.stream->controls.volume_right.ctl,
                                 "Right volume control specified again");
-        state->current.stream->controls.volume_right.ctl = ctl;
-        state->current.stream->controls.volume_right.id = idx_val;
-
+        streamctl = &(state->current.stream->controls.volume_right);
     } else {
         ALOGE("'%s' is not a valid control function", function);
         return -EINVAL;
     }
 
-    ALOGV("Added control '%s' function '%s'", name, function);
+    streamctl->ctl = ctl;
+    streamctl->id = idx_val;
+
+    switch (attrib_to_uint(&v, state, e_attrib_min)) {
+    case -EINVAL:
+        return -EINVAL;
+
+    case -ENOENT:
+        /* Not specified, get control's min value */
+        r = mixer_ctl_get_range_min(ctl);
+        if (r < 0) {
+            ALOGE("Failed to get control min");
+            return r;
+        }
+        streamctl->min = (uint)r;
+        break;
+
+    default:
+        streamctl->min = v;
+        break;
+    }
+
+    switch (attrib_to_uint(&v, state, e_attrib_max)) {
+    case -EINVAL:
+        return -EINVAL;
+
+    case -ENOENT:
+        /* Not specified, get control's max value */
+        r = mixer_ctl_get_range_max(ctl);
+        if (r < 0) {
+            ALOGE("Failed to get control max");
+            return r;
+        }
+        streamctl->max = (uint)r;
+        break;
+
+    default:
+        streamctl->max = v;
+        break;
+    }
+
+    ALOGV("Added control '%s' function '%s' range %u-%u", name, function,
+                streamctl->min, streamctl->max);
 
     return 0;
 }
