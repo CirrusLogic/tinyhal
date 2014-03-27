@@ -48,6 +48,8 @@
 #include "audio_config.h"
 #include "voice_trigger.h"
 
+#include <math.h>
+
 
 #define OUT_PERIOD_SIZE_DEFAULT 1024
 #define OUT_PERIOD_COUNT_DEFAULT 4
@@ -362,11 +364,33 @@ static uint32_t out_get_latency(const struct audio_stream_out *stream)
     return latency;
 }
 
-static int out_set_volume(struct audio_stream_out *stream, float left,
-                          float right)
+static int volume_to_percent(float volume)
+{
+    float decibels;
+    float percent;
+
+    /* Converting back to a decibel scale */
+    if(volume > 0) {
+        decibels = log(volume) / 0.115129f;
+    } else {
+        /* Use the maximum attenuation value 58 */
+        decibels = -58;
+    }
+
+    /* decibels range is -58..0, rescale to range 0..100 */
+    percent = ((decibels + 58.0) * (100.0/58.0));
+    return (int)percent;
+}
+
+static int out_set_volume(struct audio_stream_out *stream, float left, float right)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
-    return set_hw_volume(out->hw, left, right);
+    int l_pc = volume_to_percent(left);
+    int r_pc = volume_to_percent(right);
+
+    ALOGV("out_set_volume (%f,%f) -> (%d%%,%d%%)", left, right, l_pc, r_pc);
+
+    return set_hw_volume(out->hw, l_pc, r_pc);
 }
 
 static int out_add_audio_effect(const struct audio_stream *stream, effect_handle_t effect)

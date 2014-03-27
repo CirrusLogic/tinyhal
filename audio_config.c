@@ -521,28 +521,25 @@ void rotate_routes( struct config_mgr *cm, int orientation )
  * Stream control
  *********************************************************************/
 
-int set_hw_volume( const struct hw_stream *stream, float left, float right)
+int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
 {
     struct stream *s = (struct stream *)stream;
-    int pc;
     int ret = -ENOSYS;
 
     if (s->controls.volume_left.ctl) {
-        pc = (int)(left * 100);
         mixer_ctl_set_percent(s->controls.volume_left.ctl,
                                 s->controls.volume_left.id,
-                                pc);
+                                left_pc);
         ret = 0;
     }
     if (s->controls.volume_right.ctl) {
-        pc = (int)(right * 100);
         mixer_ctl_set_percent(s->controls.volume_right.ctl,
                                 s->controls.volume_right.id,
-                                pc);
+                                right_pc);
         ret = 0;
     }
 
-    ALOGV_IF(ret == 0, "set_hw_volume: L=%f R=%f", left, right);
+    ALOGV_IF(ret == 0, "set_hw_volume: L=%d%% R=%d%%", left_pc, right_pc);
 
     return ret;
 }

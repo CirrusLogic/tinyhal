@@ -132,7 +132,7 @@ uint32_t get_routed_devices( const struct hw_stream *stream );
 void rotate_routes( struct config_mgr *cm, int orientation );
 
 /** Apply hardware volume */
-int set_hw_volume( const struct hw_stream *stream, float left, float right);
+int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc);
 
 /** Apply a custom use-case
  *
