@@ -86,12 +86,18 @@ enum {
 
 struct ctl {
     struct mixer_ctl    *ctl;
+    const char          *name;
     uint32_t            index;
     uint32_t            array_count;
+
+    /* If the control couldn't be opened during boot the value will hold
+     * a pointer to the original value string from the config file and will
+     * be converted later into the appropriate type
+     */
     union {
         uint32_t        uinteger;
-        const char      *name;
         const uint8_t   *data;
+        const char      *string;
     } value;
 };
 
@@ -279,13 +285,85 @@ struct parse_state {
 };
 
 
+static int string_to_uint(uint32_t *result, const char *str);
+static int make_byte_array(struct ctl *c);
 static const char *debug_device_to_name(uint32_t device);
 
 /*********************************************************************
  * Routing control
  *********************************************************************/
 
-static void apply_ctls_l( struct ctl *pctl, const int ctl_count )
+static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
+{
+    enum mixer_ctl_type ctl_type;
+    const char *val_str = pctl->value.string;
+    int ret;
+
+    if (pctl->ctl) {
+        /* control already populated on boot */
+        return 0;
+    }
+
+   /* Control wasn't found on boot, try to get it now */
+
+    pctl->ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
+    if (!pctl->ctl) {
+        /* Update tinyalsa with any new controls that have been added
+         * and try again
+         */
+        mixer_update_ctls(cm->mixer);
+        pctl->ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
+    }
+
+    if (!pctl->ctl) {
+        ALOGW("Control '%s' not found", pctl->name);
+        return -ENOENT;
+    }
+
+    ctl_type = mixer_ctl_get_type(pctl->ctl);
+    switch(ctl_type) {
+        case MIXER_CTL_TYPE_BYTE:
+            if (pctl->index == INVALID_CTL_INDEX) {
+                pctl->index = 0;
+            }
+            ret = make_byte_array(pctl);
+            if (ret != 0) {
+                return ret;
+            }
+            ALOGV("Added ctl '%s' byte array len %d", pctl->name, pctl->array_count);
+            break;
+
+        case MIXER_CTL_TYPE_BOOL:
+        case MIXER_CTL_TYPE_INT:
+            if (string_to_uint(&pctl->value.uinteger, val_str) == -EINVAL) {
+                return -EINVAL;
+            }
+
+            free((void*)val_str);  /* no need to keep this string now */
+
+            /* This log statement is just to aid to debugging */
+            ALOGE_IF((ctl_type == MIXER_CTL_TYPE_BOOL)
+                        && (pctl->value.uinteger > 1),
+                        "WARNING: Illegal value for bool control");
+            ALOGV("Added ctl '%s' value %u", pctl->name, pctl->value.uinteger);
+            break;
+
+        case MIXER_CTL_TYPE_ENUM:
+            ALOGV("Added ctl '%s' value '%s'", pctl->name, c->value.string);
+            break;
+
+        case MIXER_CTL_TYPE_IEC958:
+        case MIXER_CTL_TYPE_INT64:
+        case MIXER_CTL_TYPE_UNKNOWN:
+        default:
+            ALOGE("Mixer control '%s' has unsupported type", pctl->name);
+            return -EINVAL;
+    }
+
+    return 0;
+}
+
+static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_count)
 {
     int i;
     unsigned int vnum;
@@ -296,6 +374,10 @@ static void apply_ctls_l( struct ctl *pctl, const int ctl_count )
     ALOGV("+apply_ctls_l");
 
     for (i = 0; i < ctl_count; ++i, ++pctl) {
+        if (ctl_open(cm, pctl) != 0) {
+            break;
+        }
+
         switch (mixer_ctl_get_type(pctl->ctl)) {
             case MIXER_CTL_TYPE_BOOL:
             case MIXER_CTL_TYPE_INT:
@@ -347,13 +429,13 @@ static void apply_ctls_l( struct ctl *pctl, const int ctl_count )
             case MIXER_CTL_TYPE_ENUM:
                 ALOGV("apply ctl '%s' to '%s'",
                                             mixer_ctl_get_name(pctl->ctl),
-                                            pctl->value.name);
+                                            pctl->value.string);
 
-                err = mixer_ctl_set_enum_by_string(pctl->ctl, pctl->value.name);
+                err = mixer_ctl_set_enum_by_string(pctl->ctl, pctl->value.string);
 
                 ALOGE_IF(err < 0, "Failed to set ctl '%s' to '%s'",
                                             mixer_ctl_get_name(pctl->ctl),
-                                            pctl->value.name);
+                                            pctl->value.string);
                 break;
 
             default:
@@ -364,16 +446,17 @@ static void apply_ctls_l( struct ctl *pctl, const int ctl_count )
     ALOGV("-apply_ctls_l");
 }
 
-static void apply_path_l(struct path *path)
+static void apply_path_l(struct config_mgr *cm, struct path *path)
 {
     ALOGV("+apply_path_l(%p) id=%u", path, path->id);
 
-    apply_ctls_l(path->ctl_array.ctls, path->ctl_array.count);
+    apply_ctls_l(cm, path->ctl_array.ctls, path->ctl_array.count);
 
     ALOGV("-apply_path_l(%p)", path);
 }
 
-static void apply_device_path_l(struct device *pdev, struct path *path)
+static void apply_device_path_l(struct config_mgr *cm, struct device *pdev,
+                                    struct path *path)
 {
     ALOGV("+apply_device_path_l(%p) id=%u", path, path->id);
 
@@ -397,13 +480,13 @@ static void apply_device_path_l(struct device *pdev, struct path *path)
         break;
     }
 
-    apply_path_l(path);
+    apply_path_l(cm, path);
 
     ALOGV("-apply_device_path_l(%p)", path);
 }
 
-static void apply_paths_by_id_l(struct device *pdev, int first_id,
-                                int second_id)
+static void apply_paths_by_id_l(struct config_mgr *cm, struct device *pdev,
+                                int first_id, int second_id)
 {
     struct path *ppath = pdev->path_array.paths;
     struct path *found_paths[2] = {0};
@@ -429,11 +512,11 @@ static void apply_paths_by_id_l(struct device *pdev, int first_id,
     }
 
     if (found_paths[0] != NULL) {
-        apply_device_path_l(pdev, found_paths[0]);
+        apply_device_path_l(cm, pdev, found_paths[0]);
     }
 
     if (found_paths[1] != NULL) {
-        apply_device_path_l(pdev, found_paths[1]);
+        apply_device_path_l(cm, pdev, found_paths[1]);
     }
 }
 
@@ -454,7 +537,7 @@ static void apply_paths_to_devices_l(struct config_mgr *cm, uint32_t devices,
         if (((pdev->type & input_flag) == input_flag)
                     && ((pdev->type & devices) != 0)) {
             devices &= ~pdev->type;
-            apply_paths_by_id_l(pdev, first_id, second_id);
+            apply_paths_by_id_l(cm, pdev, first_id, second_id);
         }
 
         --dev_count;
@@ -472,7 +555,7 @@ static void apply_paths_to_global_l(struct config_mgr *cm,
 
     while (pdev < pend) {
         if (pdev->type == 0) {
-            apply_paths_by_id_l(pdev, first_id, second_id);
+            apply_paths_by_id_l(cm, pdev, first_id, second_id);
             break;
         }
         ++pdev;
@@ -759,7 +842,7 @@ int apply_use_case( const struct hw_stream* stream,
             for(; case_count > 0; case_count--, pcase++) {
                 if (0 == strcmp(pcase->name, case_name)) {
                     pthread_mutex_lock(&s->cm->lock);
-                    apply_ctls_l(pcase->ctl_array.ctls, pcase->ctl_array.count);
+                    apply_ctls_l(s->cm, pcase->ctl_array.ctls, pcase->ctl_array.count);
                     pthread_mutex_unlock(&s->cm->lock);
                     ret = 0;
                     goto exit;
@@ -1011,7 +1094,7 @@ static void dyn_array_free(struct dyn_array *array)
     free(array->data);
 }
 
-static struct ctl* new_ctl(struct dyn_array *array, struct mixer_ctl *ctl)
+static struct ctl* new_ctl(struct dyn_array *array, const char *name)
 {
     struct ctl *c;
 
@@ -1021,7 +1104,7 @@ static struct ctl* new_ctl(struct dyn_array *array, struct mixer_ctl *ctl)
 
     c = &array->ctls[array->count - 1];
     c->index = INVALID_CTL_INDEX;
-    c->ctl = ctl;
+    c->name = name;
     return c;
 }
 
@@ -1235,16 +1318,19 @@ static int attrib_to_uint(uint32_t *result, struct parse_state *state,
     return string_to_uint(result, str);
 }
 
-static int make_byte_array(struct parse_state *state, struct ctl *c)
+static int make_byte_array(struct ctl *c)
 {
-    char *str = strdup(state->attribs.value[e_attrib_val]);
+    const char *val_str = c->value.string;
     const unsigned int vnum = mixer_ctl_get_num_values(c->ctl);
+    char *str;
+    uint8_t *pdatablock = NULL;
     uint8_t *bytes;
     int count;
     char *p;
     uint32_t v;
     int ret;
 
+    str = strdup(val_str);
     if (!str) {
         ret = -ENOMEM;
         goto fail;
@@ -1275,15 +1361,15 @@ static int make_byte_array(struct parse_state *state, struct ctl *c)
     }
     c->array_count = count;
 
-    bytes = malloc(count);
-    if (!bytes) {
+    pdatablock = malloc(count);
+    if (!pdatablock) {
         ALOGE("Out of memory for control data");
         ret = -ENOMEM;
         goto fail;
     }
-    c->value.data = bytes;
 
-    strcpy(str,state->attribs.value[e_attrib_val]);
+    strcpy(str,val_str);
+    bytes = pdatablock;
 
     for (p = strtok(str, ","); p != NULL;) {
         ret = string_to_uint(&v, p);
@@ -1297,10 +1383,12 @@ static int make_byte_array(struct parse_state *state, struct ctl *c)
     }
 
     free(str);
+    free((void *)val_str);
+    c->value.data = pdatablock;
     return 0;
 
 fail:
-    free((void *)c->value.data);
+    free(pdatablock);
     free(str);
     return ret;
 }
@@ -1340,11 +1428,10 @@ static const char *debug_device_to_name(uint32_t device)
 
 static int parse_ctl_start(struct parse_state *state)
 {
-    const char *name = state->attribs.value[e_attrib_name];
+    const char *name = strdup(state->attribs.value[e_attrib_name]);
     const char *index = state->attribs.value[e_attrib_index];
     struct dyn_array *array;
-    struct ctl *c;
-    struct mixer_ctl *ctl;
+    struct ctl *c = NULL;
     enum mixer_ctl_type ctl_type;
     int ret;
 
@@ -1356,66 +1443,41 @@ static int parse_ctl_start(struct parse_state *state)
         array = &state->current.scase->ctl_array;
     }
 
-    ctl = mixer_get_ctl_by_name(state->cm->mixer, name);
-    if (!ctl) {
-        ALOGE("Control '%s' not found", name);
-        return -EINVAL;
-    }
-
-    c = new_ctl(array, ctl);
-    if (c == NULL) {
+    if (!name) {
         return -ENOMEM;
     }
 
+    c = new_ctl(array, name);
+    if (c == NULL) {
+        ret = -ENOMEM;
+        goto fail;
+    }
+    c->name = name;
+
     if (attrib_to_uint(&c->index, state, e_attrib_index) == -EINVAL) {
         ALOGE("Invalid ctl index");
-        return -EINVAL;
+        ret = -EINVAL;
+        goto fail;
     }
 
-    ctl_type = mixer_ctl_get_type(ctl);
-    switch(ctl_type)
-        {
-        case MIXER_CTL_TYPE_BYTE:
-            if (c->index == INVALID_CTL_INDEX) {
-                c->index = 0;
-            }
-            ret = make_byte_array(state, c);
-            if (ret != 0) {
-                return ret;
-            }
-            ALOGV("Added ctl '%s' byte array", name);
-            break;
+    c->value.string = strdup(state->attribs.value[e_attrib_val]);
+    if(!c->value.string) {
+        ret = -ENOMEM;
+        goto fail;
+    }
 
-        case MIXER_CTL_TYPE_BOOL:
-        case MIXER_CTL_TYPE_INT:
-            if (attrib_to_uint(&c->value.uinteger, state, e_attrib_val)
-                                                            == -EINVAL) {
-                return -EINVAL;
-            }
-            /* This log statement is just to aid to debugging */
-            ALOGE_IF((ctl_type == MIXER_CTL_TYPE_BOOL)
-                        && (c->value.uinteger > 1),
-                        "WARNING: Illegal value for bool control");
-            ALOGV("Added ctl '%s' value %u", name, c->value.uinteger);
-            break;
+    ret = ctl_open(state->cm, c);
+    if (ret == -ENOENT) {
+        /* control not found, just ignore and do lazy open when it's used */
+        return 0;
+    } else {
+        return ret;
+    }
 
-        case MIXER_CTL_TYPE_ENUM:
-            c->value.name = strdup(state->attribs.value[e_attrib_val]);
-            if(!c->value.name) {
-                return -ENOMEM;
-            }
-            ALOGV("Added ctl '%s' value '%s'", name, c->value.name);
-            break;
-
-        case MIXER_CTL_TYPE_IEC958:
-        case MIXER_CTL_TYPE_INT64:
-        case MIXER_CTL_TYPE_UNKNOWN:
-        default:
-            ALOGE("Mixer control '%s' has unsupported type", name);
-            return -EINVAL;
-        };
-
-    return 0;
+fail:
+    free(c);
+    free((void *)name);
+    return ret;
 }
 
 static int parse_init_start(struct parse_state *state)
@@ -2067,7 +2129,7 @@ static int parse_config_file(struct config_mgr *cm)
     if (ret >= 0) {
         /* Initialize the mixer by applying the <init> path */
         /* No need to take mutex during initialization */
-        apply_path_l(&state->init_path);
+        apply_path_l(cm, &state->init_path);
     }
 
 fail:
@@ -2127,9 +2189,13 @@ void free_audio_config( struct config_mgr *cm )
                 /* Free all ctls in path */
                 ctl_array = &path_array->paths[path_idx].ctl_array;
                 for (ctl_idx = ctl_array->count - 1; ctl_idx >= 0; --ctl_idx) {
-                    if (ctl_array->ctls[ctl_idx].value.name) {
-                        free((void*)ctl_array->ctls[ctl_idx].value.name);
-                        ctl_array->ctls[ctl_idx].value.name = NULL;
+                    if (ctl_array->ctls[ctl_idx].name) {
+                        free((void*)ctl_array->ctls[ctl_idx].name);
+                        ctl_array->ctls[ctl_idx].name = NULL;
+                    }
+                    if (ctl_array->ctls[ctl_idx].value.string) {
+                        free((void*)ctl_array->ctls[ctl_idx].value.string);
+                        ctl_array->ctls[ctl_idx].value.string = NULL;
                     }
                     if (ctl_array->ctls[ctl_idx].value.data) {
                         free((void*)ctl_array->ctls[ctl_idx].value.data);
