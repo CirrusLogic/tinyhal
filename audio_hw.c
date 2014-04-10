@@ -46,7 +46,6 @@
 #include <audio_utils/resampler.h>
 
 #include "audio_config.h"
-#include "voice_trigger.h"
 
 #include <math.h>
 
@@ -70,19 +69,6 @@
 
 /* Maximum time we'll wait for data from a compress_pcm input */
 #define MAX_COMPRESS_PCM_TIMEOUT_MS     2100
-
-struct voice_control_trigger {
-    pthread_t thread;
-    pthread_mutex_t lock;
-    pthread_cond_t waitcv;
-    struct compress *compress;
-    void (*callback)(void *param);
-    void *callback_param;
-    bool own_compress;
-    volatile bool wait;
-    volatile bool terminate;
-    volatile bool triggered;
-};
 
 struct audio_device {
     struct audio_hw_device hw_device;
@@ -187,8 +173,6 @@ struct stream_in_pcm {
     int in_buffer_frames;
     size_t frames_in;
     int read_status;
-
-    struct voice_control_trigger *vc_trigger;
 };
 
 enum {
@@ -790,185 +774,6 @@ static int do_init_in_common( struct stream_in_common *in,
 }
 
 /*********************************************************************
- * Voice control triggering
- * Currently assumes a compressed channel
- *********************************************************************/
-
-static void* voice_control_trigger_thread(void *param)
-{
-    struct voice_control_trigger *self = param;
-    struct compress *compress;
-    int ret;
-
-    /* signal that we're alive and ready */
-    pthread_cond_signal(&self->waitcv);
-
-    while (!self->terminate) {
-        pthread_mutex_lock(&self->lock);
-        if (!self->wait) {
-            pthread_cond_wait(&self->waitcv, &self->lock);
-        }
-        self->wait = false;
-        pthread_mutex_unlock(&self->lock);
-
-        if (self->terminate) {
-            break;
-        }
-
-        /* We must protect against any failure by the main thread to open
-         * the compressed channel
-         */
-        compress = self->compress;
-        if (compress != NULL) {
-            ALOGV("VC wait");
-            ret = compress_wait(compress, -1);
-
-            if (self->terminate) {
-                break;
-            }
-
-            if (ret == 0) {
-                self->triggered = true;
-                ALOGV("VC trigger %d", ret);
-                (self->callback)(self->callback_param);
-            }
-        }
-    }
-
-    if (self->own_compress && self->compress) {
-        ALOGV("VC trigger thread closes compress");
-        compress_close(self->compress);
-    }
-    free(self);
-
-    ALOGV("VC trigger thread terminates");
-    return NULL;
-}
-
-static void start_voice_control_wait(struct voice_control_trigger *self)
-{
-    ALOGV("start_voice_control_wait");
-
-    pthread_mutex_lock(&self->lock);
-    self->triggered = false;
-    self->wait = true;
-    pthread_cond_signal(&self->waitcv);
-    pthread_mutex_unlock(&self->lock);
-}
-
-static void cancel_voice_control_wait(struct voice_control_trigger *in)
-{
-    ALOGV("cancel_voice_control_wait");
-}
-
-static struct voice_control_trigger* create_voice_control_trigger()
-{
-    static struct voice_control_trigger *t;
-    int ret;
-
-    t = calloc(1, sizeof(struct voice_control_trigger));
-
-    if (t != NULL) {
-        pthread_mutex_init(&t->lock, NULL);
-        pthread_cond_init(&t->waitcv, NULL);
-        pthread_mutex_lock(&t->lock);
-
-        ret = pthread_create(&t->thread, NULL, voice_control_trigger_thread, t);
-        if (ret != 0) {
-            goto fail;
-        }
-
-        /* Wait for thread to initialize */
-        pthread_cond_wait(&t->waitcv, &t->lock);
-        pthread_mutex_unlock(&t->lock);
-    }
-
-    return t;
-
-fail:
-    free(t);
-    return NULL;
-}
-
-static void destroy_voice_control_trigger(struct voice_control_trigger *self,
-                                                bool close_channel)
-{
-    ALOGV("+destroy_voice_control_trigger (close=%d)", close_channel);
-
-    if (self != NULL) {
-        pthread_mutex_lock(&self->lock);
-        if (close_channel && (self->compress != NULL)) {
-            /* Take ownership of the compressed channel and close */
-            /* it as we terminate */
-            /* Must stop the channel to force thread out of the poll */
-            self->own_compress = true;
-            self->terminate = true;
-
-            /* Kick the driver to create an error condition */
-            /* so wait thread will exit the poll */
-
-            if (!is_compress_running(self->compress)) {
-                /* If it's not running, do a dummy start so we */
-                /* can force a stop */
-                compress_start(self->compress);
-            }
-            compress_stop(self->compress);
-        }
-
-        pthread_cond_signal(&self->waitcv);
-        pthread_mutex_unlock(&self->lock);
-
-        /* A struct voice_control_trigger cannot be created without a thread */
-        /* so it is safe to just call pthread_join() here */
-        pthread_join(self->thread, NULL);
-    }
-
-    ALOGV("-destroy_voice_control_trigger");
-}
-
-static void voice_control_callback(void *param)
-{
-    struct stream_in_pcm *in = param;
-
-    if (in->common.standby) {
-        ALOGV("VC trig");
-        send_voice_trigger();
-    } else {
-        ALOGV("VC trig ignored (not in standby)");
-    }
-}
-
-static int init_voice_control(struct stream_in_pcm *in)
-{
-    struct audio_device *adev = in->common.dev;
-    struct voice_control_trigger *t;
-    int ret;
-
-    ALOGV("+init_voice_control");
-    if (!stream_is_compressed(in->common.hw)) {
-        /* We don't support triggering on PCM streams */
-        ret = -EINVAL;
-        goto out;
-    }
-
-    t = create_voice_control_trigger();
-    if (t == NULL) {
-        ret = -ENOMEM;
-        goto out;
-    }
-
-    t->compress = in->compress;
-    t->callback = voice_control_callback;
-    t->callback_param = in;
-    in->vc_trigger = t;
-    ret = 0;
-
-out:
-    ALOGV("-init_voice_control %d", ret);
-    return ret;
-}
-
-/*********************************************************************
  * PCM input stream via compressed channel
  *********************************************************************/
 
@@ -1027,16 +832,9 @@ static int start_compress_pcm_input_stream(struct stream_in_pcm *in)
     ALOGV("start_compress_pcm_input_stream");
 
     if (in->common.standby) {
-        /* For voice control we don't need to cancel a pending trigger because
-         * if it's still waiting for a trigger, we won't return any data and
-         * will eventually be put back into standby to continue waiting for
-         * a trigger
-         */
-        if (in->vc_trigger == NULL) {
-            ret = do_open_compress_pcm_in(in);
-            if (ret < 0) {
-                return ret;
-            }
+        ret = do_open_compress_pcm_in(in);
+        if (ret < 0) {
+            return ret;
         }
 
         adev->active_in = in;
@@ -1044,15 +842,6 @@ static int start_compress_pcm_input_stream(struct stream_in_pcm *in)
     }
 
     return 0;
-}
-
-static void do_in_compress_pcm_start_vc_trigger(struct stream_in_pcm *in)
-{
-    int ret = do_open_compress_pcm_in(in);
-    if (ret == 0) {
-        in->vc_trigger->compress = in->compress;
-        start_voice_control_wait(in->vc_trigger);
-    }
 }
 
 /* must be called with hw device and input stream mutexes locked */
@@ -1064,25 +853,10 @@ static void do_in_compress_pcm_standby(struct stream_in_pcm *in)
     ALOGV("+do_in_compress_pcm_standby");
 
     if (!in->common.standby) {
-        /* Always close, even for a voice control channel.
-         * For voice control we must close the channel after each command
-         */
         c = in->compress;
         in->compress = NULL;
-
-        if (in->vc_trigger != NULL) {
-            destroy_voice_control_trigger(in->vc_trigger, true);
-            in->vc_trigger = NULL;
-
-            /* For voice control we must re-open the channel to */
-            /* wait for next trigger */
-            init_voice_control(in);
-            do_in_compress_pcm_start_vc_trigger(in);
-        } else {
-            compress_stop(c);
-            compress_close(c);
-        }
-
+        compress_stop(c);
+        compress_close(c);
     }
     in->common.standby = true;
 
@@ -1115,15 +889,6 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
 
     if (ret < 0) {
         goto exit;
-    }
-
-    if (in->vc_trigger != NULL) {
-        if (!in->vc_trigger->triggered) {
-            /* Read without trigger, no data will be available */
-            ALOGV("read without voice trigger - not returning data");
-            ret = 0;
-            goto exit;
-        }
     }
 
     t1 = systemTime(SYSTEM_TIME_MONOTONIC);
@@ -1168,9 +933,7 @@ static void do_in_compress_pcm_close(struct stream_in_pcm *in)
 {
     ALOGV("+do_in_compress_pcm_close");
 
-    if (in->vc_trigger != NULL) {
-        destroy_voice_control_trigger(in->vc_trigger, true);
-    } else if (in->compress != NULL) {
+    if (in->compress != NULL) {
         compress_stop(in->compress);
         compress_close(in->compress);
     }
@@ -1341,38 +1104,6 @@ static int start_pcm_input_stream(struct stream_in_pcm *in)
     return 0;
 }
 
-static int change_input_locale_locked(struct stream_in_pcm *in, const char *locale)
-{
-    int ret;
-
-    if (in->vc_trigger) {
-        if (!in->common.standby) {
-            ALOGE("attempt to change input locale while active");
-            return -EINVAL;
-        }
-
-        ALOGE("change voice control locale to %s", locale);
-
-        destroy_voice_control_trigger(in->vc_trigger, true);
-
-        /* Execute locale-change use-case */
-        ret = apply_use_case(in->common.hw, "locale", locale);
-        if (ret == -ENOSYS) {
-            /* use-case not implemented.
-             * As we don't support the requested locale switch to default
-             * rather than potentially staying in a totally wrong language
-             */
-             apply_use_case(in->common.hw, "locale", "");
-        }
-
-        /* restart the trigger wait */
-        init_voice_control(in);
-        do_in_compress_pcm_start_vc_trigger(in);
-    }
-
-    return 0;
-}
-
 static int change_input_source_locked(struct stream_in_pcm *in, const char *value,
                                 uint32_t devices, bool *was_changed)
 {
@@ -1428,22 +1159,12 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
 
     if (hw != NULL) {
         /* A normal stream will be in standby and therefore device node */
-        /* is closed when we get here. Only in case of a voice control */
-        /* stream will it still be open */
-        if (in->vc_trigger != NULL) {
-            destroy_voice_control_trigger(in->vc_trigger, true);
-        }
+        /* is closed when we get here. */
+
         release_stream(in->common.hw);
         in->common.hw = hw;
 
-        in->vc_trigger = NULL;
-
         if (voice_control) {
-            /* Voice control wait will be started when AudioFlinger
-             * puts stream into standby
-             */
-            init_voice_control(in);
-
             adev->active_voice_control = in;
         } else if (adev->active_voice_control == in) {
             adev->active_voice_control = NULL;
@@ -1663,7 +1384,6 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
     bool routing_changed;
     uint32_t devices;
     bool input_was_changed;
-    bool start_vc_trig = false;
     int ret;
 
     ALOGV("+in_pcm_set_parameters(%p) '%s'", stream, kvpairs);
@@ -1692,22 +1412,12 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
         /* We must apply any existing routing to the new stream */
         new_routing = devices;
         routing_changed = true;
-
-        /* Defer starting the voice control trigger wait until */
-        /* the routing has been set up */
-        if ((in->vc_trigger != NULL) && (input_was_changed)) {
-            start_vc_trig = true;
-        }
     }
 
     if (routing_changed) {
         ALOGV("Apply routing=0x%x to input stream", new_routing);
         apply_route(in->common.hw, new_routing);
         ret = 0;
-    }
-
-    if (start_vc_trig) {
-        do_in_compress_pcm_start_vc_trigger(in);
     }
 
     common_set_parameters_locked(in->common.hw, kvpairs);
@@ -1929,16 +1639,6 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
             adev->screen_off = true;
     }
 
-    /* locale changes are only relevant to the voice control stream but
-     * Android does not expose the per-stream setParameters() ability to
-     * Java apps so we must handle this through the global setParameters
-     */
-    if(str_parms_get_str(parms, "locale", value, sizeof(value)) >= 0) {
-        if (adev->active_voice_control) {
-            ret = change_input_locale_locked(adev->active_voice_control, value);
-        }
-    }
-
     str_parms_destroy(parms);
     return ret;
 }
@@ -2050,13 +1750,6 @@ static int adev_open(const hw_module_t* module, const char* name,
     if (!adev->cm) {
         ret = -EINVAL;
         goto fail;
-    }
-
-    if (is_named_stream_defined(adev->cm, "voice recognition")) {
-        ret = init_voice_trigger_service();
-        if (ret != 0) {
-            goto fail;
-        }
     }
 
     adev->orientation = ORIENTATION_UNDEFINED;
