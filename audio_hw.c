@@ -79,6 +79,9 @@ struct audio_device {
     int orientation;
 
     struct stream_in_pcm *active_voice_control;
+
+    const struct hw_stream* voice_trig_stream;
+    audio_devices_t voice_trig_mic;
 };
 
 
@@ -1594,6 +1597,75 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
 }
 
 /*********************************************************************
+ * Voice trigger
+ *********************************************************************/
+
+static void voice_trigger_enable(struct audio_device *adev)
+{
+    audio_devices_t mic_device;
+
+    ALOGV("+voice_trigger_enable");
+
+    pthread_mutex_lock(&adev->lock);
+
+    if (!adev->voice_trig_stream) {
+        adev->voice_trig_stream = get_named_stream(adev->cm, "voice trigger");
+
+        if (adev->voice_trig_stream != NULL) {
+            if (adev->voice_trig_mic == 0) {
+                /* No mic specified, default to internal mic */
+                mic_device = AUDIO_DEVICE_IN_BUILTIN_MIC;
+            } else {
+                mic_device = adev->voice_trig_mic;
+            }
+
+            apply_route(adev->voice_trig_stream, mic_device);
+        }
+    }
+
+    pthread_mutex_unlock(&adev->lock);
+
+    ALOGV("-voice_trigger_enable");
+}
+
+static void voice_trigger_disable(struct audio_device *adev)
+{
+    ALOGV("+voice_trigger_disable");
+
+    pthread_mutex_lock(&adev->lock);
+
+    if (adev->voice_trig_stream) {
+        apply_route(adev->voice_trig_stream, 0);
+        release_stream(adev->voice_trig_stream);
+        adev->voice_trig_stream = NULL;
+    }
+
+    pthread_mutex_unlock(&adev->lock);
+
+    ALOGV("-voice_trigger_disable");
+}
+
+static void voice_trigger_set_params(struct audio_device *adev, struct str_parms *parms)
+{
+    int ret;
+    char value[32];
+
+    ret = str_parms_get_str(parms, "voice_trigger_mic", value, sizeof(value));
+    if (ret >= 0) {
+        adev->voice_trig_mic = atoi(value);
+    }
+
+    ret = str_parms_get_str(parms, "voice_trigger", value, sizeof(value));
+    if (ret >= 0) {
+        if (strcmp(value, "1") == 0) {
+            voice_trigger_enable(adev);
+        } else if (strcmp(value, "0") == 0) {
+            voice_trigger_disable(adev);
+        }
+    }
+}
+
+/*********************************************************************
  * Global API functions
  *********************************************************************/
 static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
@@ -1604,7 +1676,12 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     char value[32];
     int ret;
 
+    ALOGW("adev_set_parameters '%s'", kvpairs);
+
     parms = str_parms_create_str(kvpairs);
+
+    pthread_mutex_lock(&adev->lock);
+
     ret = str_parms_get_str(parms, "orientation", value, sizeof(value));
     if (ret >= 0) {
         int orientation;
@@ -1618,14 +1695,16 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
         else
             orientation = ORIENTATION_UNDEFINED;
 
-        pthread_mutex_lock(&adev->lock);
         if (orientation != adev->orientation) {
             adev->orientation = orientation;
             /* Change routing for any streams that change with orientation */
             rotate_routes(adev->cm, orientation);
         }
-        pthread_mutex_unlock(&adev->lock);
     }
+
+    voice_trigger_set_params(adev, parms);
+
+    pthread_mutex_unlock(&adev->lock);
 
     str_parms_destroy(parms);
     return ret;

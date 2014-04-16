@@ -209,6 +209,12 @@ Optional attributes:
                 match the name your HAL will use to request this stream
 
 Anonymous PCM streams should not normally have an instance limit.
+
+TinyHAL defines some specific named streams:
+
+"voice trigger" - a hardware stream for always-on voice trigger that _only_
+                  supports triggering. This stream will be enabled when TinyHAL
+                  is told to 'arm' the trigger.
 -->
 
     <stream type="pcm" dir="out" card="0" device="0">
