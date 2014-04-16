@@ -1110,7 +1110,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
     struct audio_device *adev = in->common.dev;
     struct audio_config config;
     const char *stream_name;
-    const struct hw_stream *hw;
+    const struct hw_stream *hw = NULL;
     bool voice_control = false;
     const int new_source = atoi(value);
 
@@ -1134,7 +1134,6 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         /* We should verify here that current frame size, sample rate and
          * channels are compatible
          */
-
         stream_name = "voice recognition";
         voice_control = true;
         break;
@@ -1145,9 +1144,13 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
     }
 
     if (stream_name) {
+        /* try to open a stream specific to the chosen input source */
         hw = get_named_stream(in->common.dev->cm, stream_name);
         ALOGV_IF(hw != NULL, "Changing input source to %s", stream_name);
-    } else {
+    }
+
+    if (!hw) {
+        /* open generic PCM input stream */
         memset(&config, 0, sizeof(config));
         config.sample_rate = in->common.sample_rate;
         config.channel_mask = in->common.channel_mask;
