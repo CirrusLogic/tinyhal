@@ -133,7 +133,7 @@ struct stream {
     struct hw_stream  info;   /* must be first member */
 
     struct config_mgr*  cm;
-    const char* name;       /* used for named custom streams */
+    const char* name;
 
     int     ref_count;
     int     max_ref_count;
@@ -161,7 +161,6 @@ struct config_mgr {
 
     struct dyn_array device_array;
     struct dyn_array stream_array;
-    struct dyn_array named_stream_array;
 };
 
 /*********************************************************************
@@ -582,12 +581,14 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
 static struct stream *find_named_stream(struct config_mgr *cm,
                                    const char *name)
 {
-    struct stream *s = cm->named_stream_array.streams;
+    struct stream *s = cm->stream_array.streams;
     int i;
 
-    for (i = cm->named_stream_array.count - 1; i >= 0; --i) {
-        if (strcmp(s->name, name) == 0) {
-            return s;
+    for (i = cm->stream_array.count - 1; i >= 0; --i) {
+        if (s->name) {
+            if (strcmp(s->name, name) == 0) {
+                return s;
+            }
         }
         s++;
     }
@@ -1134,7 +1135,6 @@ static struct config_mgr* new_config_mgr()
     }
     mgr->device_array.elem_size = sizeof(struct device);
     mgr->stream_array.elem_size = sizeof(struct stream);
-    mgr->named_stream_array.elem_size = sizeof(struct stream);
     pthread_mutex_init(&mgr->lock, NULL);
     return mgr;
 }
@@ -1640,7 +1640,6 @@ static int parse_stream_start(struct parse_state *state)
     const char *type = state->attribs.value[e_attrib_type];
     const char *dir = state->attribs.value[e_attrib_dir];
     const char *name = state->attribs.value[e_attrib_name];
-    struct dyn_array *array;
     bool out;
     uint32_t card;
     uint32_t device;
@@ -1659,12 +1658,9 @@ static int parse_stream_start(struct parse_state *state)
             ALOGE("Stream '%s' already declared", name);
             return -EINVAL;
         }
-        array = &state->cm->named_stream_array;
-    } else {
-        array = &state->cm->stream_array;
     }
 
-    s = new_stream(array, state->cm);
+    s = new_stream(&state->cm->stream_array, state->cm);
     if (s == NULL) {
         return -ENOMEM;
     }
@@ -2143,12 +2139,6 @@ void free_audio_config( struct config_mgr *cm )
         dyn_array_free(&cm->device_array);
 
         stream_array = &cm->stream_array;
-        for(stream_idx = stream_array->count - 1; stream_idx >= 0; --stream_idx) {
-            free_usecases(&stream_array->streams[stream_idx]);
-        }
-        dyn_array_free(&cm->stream_array);
-
-        stream_array = &cm->named_stream_array;
         for(stream_idx = stream_array->count - 1; stream_idx >= 0; --stream_idx) {
             free_usecases(&stream_array->streams[stream_idx]);
         }
