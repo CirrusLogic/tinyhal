@@ -120,6 +120,16 @@ struct stream_out_pcm {
     int hw_channel_count;  /* actual number of output channels */
 };
 
+struct in_resampler {
+    struct resampler_itfe *resampler;
+    struct resampler_buffer_provider buf_provider;
+    int16_t *buffer;
+    size_t in_buffer_size;
+    int in_buffer_frames;
+    size_t frames_in;
+    int read_status;
+};
+
 /* Fields common to all types of input stream */
 struct stream_in_common {
     struct audio_stream_in stream;
@@ -159,13 +169,7 @@ struct stream_in_pcm {
     int hw_channel_count;  /* actual number of input channels */
     uint32_t period_size;       /* ... of PCM input */
 
-    struct resampler_itfe *resampler;
-    struct resampler_buffer_provider buf_provider;
-    int16_t *buffer;
-    size_t in_buffer_size;
-    int in_buffer_frames;
-    size_t frames_in;
-    int read_status;
+    struct in_resampler resampler;
 };
 
 enum {
@@ -177,10 +181,6 @@ enum {
 
 static uint32_t out_get_sample_rate(const struct audio_stream *stream);
 static uint32_t in_get_sample_rate(const struct audio_stream *stream);
-static int get_next_buffer(struct resampler_buffer_provider *buffer_provider,
-                                   struct resampler_buffer* buffer);
-static void release_buffer(struct resampler_buffer_provider *buffer_provider,
-                                  struct resampler_buffer* buffer);
 
 /*********************************************************************
  * Stream common functions
@@ -738,6 +738,141 @@ static int do_init_in_common( struct stream_in_common *in,
 }
 
 /*********************************************************************
+ * PCM input resampler handling
+ *********************************************************************/
+static int get_next_buffer(struct resampler_buffer_provider *buffer_provider,
+                                   struct resampler_buffer* buffer)
+{
+    struct in_resampler *rsp;
+    struct stream_in_pcm *in;
+
+    if (buffer_provider == NULL || buffer == NULL) {
+        return -EINVAL;
+    }
+
+    rsp = (struct in_resampler *)((char *)buffer_provider -
+                                   offsetof(struct in_resampler, buf_provider));
+    in = (struct stream_in_pcm *)((char *)rsp -
+                                   offsetof(struct stream_in_pcm, resampler));
+
+    if (in->pcm == NULL) {
+        buffer->raw = NULL;
+        buffer->frame_count = 0;
+        rsp->read_status = -ENODEV;
+        return -ENODEV;
+    }
+
+    if (rsp->frames_in == 0) {
+        rsp->read_status = pcm_read(in->pcm,
+                                   (void*)rsp->buffer,
+                                   rsp->in_buffer_size);
+        if (rsp->read_status != 0) {
+            ALOGE("get_next_buffer() pcm_read error %d", errno);
+            buffer->raw = NULL;
+            buffer->frame_count = 0;
+            return rsp->read_status;
+        }
+        rsp->frames_in = rsp->in_buffer_frames;
+        if ((in->common.channel_count == 1) && (in->hw_channel_count == 2)) {
+            unsigned int i;
+
+            /* Discard right channel */
+            for (i = 1; i < rsp->frames_in; i++) {
+                rsp->buffer[i] = rsp->buffer[i * 2];
+            }
+        }
+    }
+
+    buffer->frame_count = (buffer->frame_count > rsp->frames_in) ?
+                                rsp->frames_in : buffer->frame_count;
+    buffer->i16 = (int16_t*)rsp->buffer + ((rsp->in_buffer_frames - rsp->frames_in));
+
+    return rsp->read_status;
+}
+
+static void release_buffer(struct resampler_buffer_provider *buffer_provider,
+                                  struct resampler_buffer* buffer)
+{
+    struct in_resampler *rsp;
+    struct stream_in_pcm *in;
+
+    if (buffer_provider == NULL || buffer == NULL)
+        return;
+
+    rsp = (struct in_resampler *)((char *)buffer_provider -
+                                   offsetof(struct in_resampler, buf_provider));
+    in = (struct stream_in_pcm *)((char *)rsp -
+                                   offsetof(struct stream_in_pcm, resampler));
+
+    rsp->frames_in -= buffer->frame_count;
+}
+
+static ssize_t read_resampled_frames(struct stream_in_pcm *in,
+                                      void *buffer, ssize_t frames)
+{
+    struct in_resampler *rsp = &in->resampler;
+    ssize_t frames_wr = 0;
+
+    while (frames_wr < frames) {
+        size_t frames_rd = frames - frames_wr;
+        rsp->resampler->resample_from_provider(rsp->resampler,
+                                        (int16_t *)((char *)buffer +
+                                                (frames_wr * in->common.frame_size)),
+                                        &frames_rd);
+        if (rsp->read_status != 0) {
+            return rsp->read_status;
+        }
+
+        frames_wr += frames_rd;
+    }
+    return frames_wr;
+}
+
+static int in_resampler_init(struct stream_in_pcm *in, int hw_rate,
+                             int channels, size_t hw_fragment)
+{
+    struct in_resampler *rsp = &in->resampler;
+    int ret = 0;
+
+    rsp->in_buffer_size = hw_fragment * channels * in->common.frame_size;
+    rsp->in_buffer_frames = rsp->in_buffer_size /
+                                        (channels * in->common.frame_size);
+    rsp->buffer = malloc(rsp->in_buffer_size);
+
+    if (!rsp->buffer) {
+        ret = -ENOMEM;
+    } else {
+        rsp->buf_provider.get_next_buffer = get_next_buffer;
+        rsp->buf_provider.release_buffer = release_buffer;
+
+        ret = create_resampler(hw_rate,
+                               in->common.sample_rate,
+                               in->common.channel_count,
+                               RESAMPLER_QUALITY_DEFAULT,
+                               &rsp->buf_provider,
+                               &rsp->resampler);
+    }
+
+    if (ret < 0) {
+        free(rsp->buffer);
+        rsp->buffer = NULL;
+    }
+
+    return ret;
+}
+
+static void in_resampler_free(struct stream_in_pcm *in)
+{
+    if (in->resampler.resampler) {
+        release_resampler(in->resampler.resampler);
+        in->resampler.resampler = NULL;
+    }
+
+    free(in->resampler.buffer);
+    in->resampler.buffer = NULL;
+}
+
+/*********************************************************************
  * PCM input stream via compressed channel
  *********************************************************************/
 
@@ -944,14 +1079,8 @@ static void do_in_pcm_standby(struct stream_in_pcm *in)
         pcm_close(in->pcm);
         in->pcm = NULL;
     }
-    if (in->resampler) {
-        release_resampler(in->resampler);
-        in->resampler = NULL;
-    }
-    if (in->buffer) {
-        free(in->buffer);
-        in->buffer = NULL;
-    }
+
+    in_resampler_free(in);
     in->common.standby = true;
 
     ALOGV("-do_in_pcm_standby");
@@ -1015,25 +1144,8 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
      * create a resampler.
      */
     if (in_get_sample_rate(&in->common.stream.common) != config.rate) {
-        in->in_buffer_size = config.period_size * config.period_count *
-                             config.channels * 2;
-        in->in_buffer_frames = in->in_buffer_size / (config.channels * 2);
-        in->buffer = malloc(in->in_buffer_size);
-
-        if (!in->buffer) {
-            ret = -ENOMEM;
-            goto fail;
-        }
-
-        in->buf_provider.get_next_buffer = get_next_buffer;
-        in->buf_provider.release_buffer = release_buffer;
-
-        ret = create_resampler(config.rate,
-                               in->common.sample_rate,
-                               in->common.channel_count,
-                               RESAMPLER_QUALITY_DEFAULT,
-                               &in->buf_provider,
-                               &in->resampler);
+        ret = in_resampler_init(in, config.rate, config.channels,
+                                config.period_size * config.period_count);
         if (ret < 0) {
             goto fail;
         }
@@ -1143,106 +1255,6 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
     }
 }
 
-static int get_next_buffer(struct resampler_buffer_provider *buffer_provider,
-                                   struct resampler_buffer* buffer)
-{
-    struct stream_in_pcm *in;
-
-    if (buffer_provider == NULL || buffer == NULL) {
-        return -EINVAL;
-    }
-
-    in = (struct stream_in_pcm *)((char *)buffer_provider -
-                                   offsetof(struct stream_in_pcm, buf_provider));
-
-    if (in->pcm == NULL) {
-        buffer->raw = NULL;
-        buffer->frame_count = 0;
-        in->read_status = -ENODEV;
-        return -ENODEV;
-    }
-
-    if (in->frames_in == 0) {
-        in->read_status = pcm_read(in->pcm,
-                                   (void*)in->buffer,
-                                   in->in_buffer_size);
-        if (in->read_status != 0) {
-            ALOGE("get_next_buffer() pcm_read error %d", errno);
-            buffer->raw = NULL;
-            buffer->frame_count = 0;
-            return in->read_status;
-        }
-        in->frames_in = in->in_buffer_frames;
-        if ((in->common.channel_count == 1) && (in->hw_channel_count == 2)) {
-            unsigned int i;
-
-            /* Discard right channel */
-            for (i = 1; i < in->frames_in; i++) {
-                in->buffer[i] = in->buffer[i * 2];
-            }
-        }
-    }
-
-    buffer->frame_count = (buffer->frame_count > in->frames_in) ?
-                                in->frames_in : buffer->frame_count;
-    buffer->i16 = (int16_t*)in->buffer + ((in->in_buffer_frames - in->frames_in));
-
-    return in->read_status;
-
-}
-
-static void release_buffer(struct resampler_buffer_provider *buffer_provider,
-                                  struct resampler_buffer* buffer)
-{
-    struct stream_in_pcm *in;
-
-    if (buffer_provider == NULL || buffer == NULL)
-        return;
-
-    in = (struct stream_in_pcm *)((char *)buffer_provider -
-                                   offsetof(struct stream_in_pcm, buf_provider));
-
-    in->frames_in -= buffer->frame_count;
-}
-
-/* read_frames() reads frames from kernel driver, down samples to capture rate
- * if necessary and output the number of frames requested to the buffer specified */
-static ssize_t read_frames(struct stream_in_pcm *in, void *buffer, ssize_t frames)
-{
-    ssize_t frames_wr = 0;
-
-    while (frames_wr < frames) {
-        size_t frames_rd = frames - frames_wr;
-        if (in->resampler != NULL) {
-            in->resampler->resample_from_provider(in->resampler,
-                    (int16_t *)((char *)buffer +
-                            frames_wr * in->common.frame_size),
-                    &frames_rd);
-        } else {
-            struct resampler_buffer buf = {
-                    { raw : NULL, },
-                    frame_count : frames_rd,
-            };
-            get_next_buffer(&in->buf_provider, &buf);
-            if (buf.raw != NULL) {
-                memcpy((char *)buffer +
-                           frames_wr * in->common.frame_size,
-                        buf.raw,
-                        buf.frame_count * in->common.frame_size);
-                frames_rd = buf.frame_count;
-            }
-            release_buffer(&in->buf_provider, &buf);
-        }
-        /* in->read_status is updated by getNextBuffer() also called by
-         * in->resampler->resample_from_provider() */
-        if (in->read_status != 0)
-            return in->read_status;
-
-        frames_wr += frames_rd;
-    }
-    return frames_wr;
-}
-
 static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
                        size_t bytes)
 {
@@ -1270,8 +1282,8 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
         goto exit;
     }
 
-    if (in->resampler != NULL) {
-        ret = read_frames(in, buffer, frames_rq);
+    if (in->resampler.resampler != NULL) {
+        ret = read_resampled_frames(in, buffer, frames_rq);
     } else {
         ret = pcm_read(in->pcm, buffer, bytes);
     }
