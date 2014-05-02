@@ -74,14 +74,10 @@ struct audio_device {
     struct audio_hw_device hw_device;
 
     pthread_mutex_t lock; /* see note below on mutex acquisition order */
-    bool standby;
     bool mic_mute;
     struct config_mgr *cm;
     int orientation;
-    bool screen_off;
 
-    struct stream_out_pcm *active_out;
-    struct stream_in_pcm *active_in;
     struct stream_in_pcm *active_voice_control;
 };
 
@@ -112,10 +108,7 @@ struct stream_out_common {
     size_t frame_size;
     uint32_t buffer_size;
 
-    struct {
-        uint32_t    screen_off;
-        uint32_t    screen_on;
-    } latency;
+    uint32_t latency;
 };
 
 struct stream_out_pcm {
@@ -332,20 +325,8 @@ static char * out_get_parameters(const struct audio_stream *stream, const char *
 static uint32_t out_get_latency(const struct audio_stream_out *stream)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
-    struct audio_device *adev = out->dev;
-    uint32_t latency;
 
-    pthread_mutex_lock(&adev->lock);
-
-    if (adev->screen_off && !adev->active_in) {
-        latency = out->latency.screen_off;
-    } else {
-        latency = out->latency.screen_on;
-    }
-
-    pthread_mutex_unlock(&adev->lock);
-
-    return latency;
+    return out->latency;
 }
 
 static int volume_to_percent(float volume)
@@ -483,7 +464,6 @@ static void do_out_pcm_standby(struct stream_out_pcm *out)
     if (!out->common.standby) {
         pcm_close(out->pcm);
         out->pcm = NULL;
-        adev->active_out = NULL;
         out->common.standby = true;
     }
 
@@ -498,9 +478,8 @@ static void out_pcm_fill_params(struct stream_out_pcm *out,
     out->common.buffer_size = pcm_frames_to_bytes(out->pcm,
                                                 pcm_get_buffer_size(out->pcm));
 
-    out->common.latency.screen_on = (config->period_size * config->period_count * 1000)
+    out->common.latency = (config->period_size * config->period_count * 1000)
                                 / config->rate;
-    out->common.latency.screen_off = out->common.latency.screen_on;
 }
 
 /* must be called with hw device and output stream mutexes locked */
@@ -534,8 +513,6 @@ static int start_output_pcm(struct stream_out_pcm *out)
     }
 
     out_pcm_fill_params( out, &config );
-
-    adev->active_out = out;
 
     ALOGV("-start_output_stream(%p)", out);
     return 0;
@@ -837,7 +814,6 @@ static int start_compress_pcm_input_stream(struct stream_in_pcm *in)
             return ret;
         }
 
-        adev->active_in = in;
         in->common.standby = 0;
     }
 
@@ -983,7 +959,6 @@ static void do_in_pcm_standby(struct stream_in_pcm *in)
         pcm_close(in->pcm);
         in->pcm = NULL;
     }
-    adev->active_in = NULL;
     if (in->resampler) {
         release_resampler(in->resampler);
         in->resampler = NULL;
@@ -1100,7 +1075,6 @@ static int start_pcm_input_stream(struct stream_in_pcm *in)
         return ret;
     }
 
-    adev->active_in = in;
     return 0;
 }
 
@@ -1632,14 +1606,6 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
             rotate_routes(adev->cm, orientation);
         }
         pthread_mutex_unlock(&adev->lock);
-    }
-
-    ret = str_parms_get_str(parms, "screen_state", value, sizeof(value));
-    if (ret >= 0) {
-        if (strcmp(value, AUDIO_PARAMETER_VALUE_ON) == 0)
-            adev->screen_off = false;
-        else
-            adev->screen_off = true;
     }
 
     str_parms_destroy(parms);
