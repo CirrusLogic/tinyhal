@@ -73,7 +73,7 @@
 struct audio_device {
     struct audio_hw_device hw_device;
 
-    pthread_mutex_t lock; /* see note below on mutex acquisition order */
+    pthread_mutex_t lock;
     bool mic_mute;
     struct config_mgr *cm;
     int orientation;
@@ -92,7 +92,7 @@ struct stream_out_common {
     struct audio_device *dev;
     const struct hw_stream* hw;
 
-    pthread_mutex_t lock; /* see note below on mutex acquisition order */
+    pthread_mutex_t lock;
 
     bool standby;
 
@@ -128,7 +128,7 @@ struct stream_in_common {
     struct audio_device *dev;
     const struct hw_stream* hw;
 
-    pthread_mutex_t lock; /* see note below on mutex acquisition order */
+    pthread_mutex_t lock;
 
     bool standby;
 
@@ -181,11 +181,6 @@ static int get_next_buffer(struct resampler_buffer_provider *buffer_provider,
                                    struct resampler_buffer* buffer);
 static void release_buffer(struct resampler_buffer_provider *buffer_provider,
                                   struct resampler_buffer* buffer);
-/*
- * NOTE: when multiple mutexes have to be acquired, always take the
- * audio_device mutex first, followed by the stream_in and/or
- * stream_out mutexes.
- */
 
 /*********************************************************************
  * Stream common functions
@@ -522,11 +517,9 @@ static int out_pcm_standby(struct audio_stream *stream)
 {
     struct stream_out_pcm *out = (struct stream_out_pcm *)stream;
 
-    pthread_mutex_lock(&out->common.dev->lock);
     pthread_mutex_lock(&out->common.lock);
     do_out_pcm_standby(out);
     pthread_mutex_unlock(&out->common.lock);
-    pthread_mutex_unlock(&out->common.dev->lock);
 
     return 0;
 }
@@ -550,23 +543,14 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream, const void* buffer
         return 0;
     }
 
-    /*
-     * acquiring hw device mutex systematically is useful if a low
-     * priority thread is waiting on the output stream mutex - e.g.
-     * executing out_set_parameters() while holding the hw device
-     * mutex
-     */
-    pthread_mutex_lock(&adev->lock);
     pthread_mutex_lock(&out->common.lock);
     if (out->common.standby) {
         ret = start_output_pcm(out);
         if (ret != 0) {
-            pthread_mutex_unlock(&adev->lock);
             goto exit;
         }
         out->common.standby = false;
     }
-    pthread_mutex_unlock(&adev->lock);
 
     ret = pcm_write(out->pcm, buffer, bytes);
     if (ret >= 0) {
@@ -704,9 +688,12 @@ static void do_close_in_common(struct audio_stream *stream)
     /* active_voice_control is not cleared by standby so we must
      * clear it here when stream is closed
      */
+    pthread_mutex_lock(&in->dev->lock);
     if ((struct stream_in_common *)in->dev->active_voice_control == in) {
         in->dev->active_voice_control = NULL;
     }
+    pthread_mutex_unlock(&in->dev->lock);
+
     release_stream(in->hw);
     free(stream);
 }
@@ -858,10 +845,8 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
         return 0;
     }
 
-    pthread_mutex_lock(&adev->lock);
     pthread_mutex_lock(&in->common.lock);
     ret = start_compress_pcm_input_stream(in);
-    pthread_mutex_unlock(&adev->lock);
 
     if (ret < 0) {
         goto exit;
@@ -1141,11 +1126,14 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         release_stream(in->common.hw);
         in->common.hw = hw;
 
+        pthread_mutex_lock(&adev->lock);
         if (voice_control) {
             adev->active_voice_control = in;
         } else if (adev->active_voice_control == in) {
             adev->active_voice_control = NULL;
         }
+        pthread_mutex_unlock(&adev->lock);
+
         in->common.input_source = new_source;
         *was_changed = true;
         return 0;
@@ -1270,13 +1258,6 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
         return 0;
     }
 
-    /*
-     * acquiring hw device mutex systematically is useful if a low
-     * priority thread is waiting on the input stream mutex - e.g.
-     * executing in_set_parameters() while holding the hw device
-     * mutex
-     */
-    pthread_mutex_lock(&adev->lock);
     pthread_mutex_lock(&in->common.lock);
     if (in->common.standby) {
         ret = start_pcm_input_stream(in);
@@ -1284,7 +1265,6 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
             in->common.standby = 0;
         }
     }
-    pthread_mutex_unlock(&adev->lock);
 
     if (ret < 0) {
         goto exit;
@@ -1324,7 +1304,6 @@ static int in_pcm_standby(struct audio_stream *stream)
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
 
-    pthread_mutex_lock(&in->common.dev->lock);
     pthread_mutex_lock(&in->common.lock);
 
     if (stream_is_compressed_in(in->common.hw)) {
@@ -1334,7 +1313,6 @@ static int in_pcm_standby(struct audio_stream *stream)
     }
 
     pthread_mutex_unlock(&in->common.lock);
-    pthread_mutex_unlock(&in->common.dev->lock);
 
     return 0;
 }
@@ -1369,7 +1347,7 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
     routing_changed = (ret >= 0);
     parms = str_parms_create_str(kvpairs);
 
-    pthread_mutex_lock(&adev->lock);
+    pthread_mutex_lock(&in->common.lock);
 
     if(str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_INPUT_SOURCE,
                             value, sizeof(value)) >= 0) {
@@ -1400,7 +1378,7 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
     common_set_parameters_locked(in->common.hw, kvpairs);
 
 out:
-    pthread_mutex_unlock(&adev->lock);
+    pthread_mutex_unlock(&in->common.lock);
     str_parms_destroy(parms);
 
     ALOGV("-in_pcm_set_parameters(%p):%d", stream, ret);
