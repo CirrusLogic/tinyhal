@@ -78,6 +78,12 @@ LOCAL_SHARED_LIBRARIES := \
 	libaudioutils \
 	libsysutils
 
+ifeq ($(strip $(VOICE_RECOGNITION_REQUIRES_UNSHORTEN)),true)
+LOCAL_C_INCLUDES += vendor/wolfson/tools/libs/libunshorten/include
+LOCAL_CFLAGS += -DCOMPRESS_PCM_USE_UNSHORTEN
+LOCAL_SHARED_LIBRARIES += libunshorten
+endif
+
 include $(BUILD_SHARED_LIBRARY)
 
 endif

@@ -49,6 +49,9 @@
 
 #include <math.h>
 
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+#include <libunshorten/unshorten.h>
+#endif
 
 #define OUT_PERIOD_SIZE_DEFAULT 1024
 #define OUT_PERIOD_COUNT_DEFAULT 4
@@ -158,6 +161,18 @@ struct in_resampler {
     int read_status;
 };
 
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+struct in_unshorten {
+    struct unshorten unshorten;
+    int8_t *in_buffer;
+    size_t in_buffer_size;
+    char * accumulator_buf;
+    char * accumulator_p;
+    size_t accumulator_buf_size;
+    size_t accumulator_avail;
+};
+#endif
+
 /* Fields common to all types of input stream */
 struct stream_in_common {
     struct audio_stream_in stream;
@@ -201,6 +216,10 @@ struct stream_in_pcm {
     uint32_t period_size;       /* ... of PCM input */
 
     struct in_resampler resampler;
+
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+    struct in_unshorten unshorten;
+#endif
 };
 
 enum {
@@ -963,6 +982,130 @@ static void in_resampler_free(struct stream_in_pcm *in)
 }
 
 /*********************************************************************
+ * Unshorten wrapper
+ *********************************************************************/
+
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+static int in_unshorten_read(struct stream_in_pcm *in,
+                                        char *dst, const size_t bytes)
+{
+    struct in_unshorten * const u = &in->unshorten;
+    size_t avail = 0;
+    size_t count = bytes;
+    const char *p;
+    size_t len;
+    int status;
+    int ret = 0;
+
+    ALOGV("+do_in_compress_pcm_unshorten %u", bytes);
+
+    if (u->accumulator_avail != 0) {
+        len = u->accumulator_avail;
+        if (len > count) {
+            len = count;
+        }
+
+        memcpy(dst, u->accumulator_p, len);
+
+        u->accumulator_avail -= len;
+        u->accumulator_p += len;
+        count -= len;
+        dst += len;
+    }
+
+    while (count > 0) {
+        status = unshorten_process(&u->unshorten);
+
+        if (status & UNSHORTEN_CORRUPT) {
+            ALOGE("shortened data is corrupt\n");
+            ret = -EINVAL;
+            goto out;
+        } else if (status & UNSHORTEN_OUTPUT_AVAILABLE) {
+            len = UNSHORTEN_OUTPUT_SIZE(status) * sizeof(Sample);
+            p = (const char *)unshorten_extract_output(&u->unshorten);
+
+            if (len <= count) {
+                memcpy(dst, p, len);
+                dst += len;
+                count -= len;
+            } else {
+                memcpy(dst, p, count);
+
+                len -= count;
+                if (len > u->accumulator_buf_size) {
+                    ALOGW("unshorten overflows accumulator");
+                    len = u->accumulator_buf_size;
+                }
+                memcpy(u->accumulator_buf, p + count, len);
+                u->accumulator_p = u->accumulator_buf;
+                u->accumulator_avail = len;
+                count = 0;
+                break;
+            }
+        } else if (status & UNSHORTEN_INPUT_REQUIRED) {
+            ret = compress_read(in->compress, u->in_buffer, u->in_buffer_size);
+            if (ret <= 0) {
+                ALOGV("No audio to unshorten");
+                break;
+            }
+
+            ret = unshorten_supply_input(&u->unshorten, u->in_buffer, ret);
+            if (ret != 0) {
+                break;
+            }
+        }
+    }
+out:
+    if (ret >= 0) {
+        ret = bytes - count;
+    }
+
+    ALOGV("-do_in_compress_pcm_unshorten %d", ret);
+    return bytes - count;
+}
+#endif
+
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+static int in_unshorten_init(struct in_unshorten *u, const struct compr_config *config)
+{
+    int ret;
+
+    u->in_buffer_size = config->fragment_size;
+    u->accumulator_buf_size = config->fragment_size * 2;
+    u->in_buffer = malloc(u->in_buffer_size);
+    u->accumulator_buf = malloc(u->accumulator_buf_size);
+
+    if ((u->in_buffer == NULL) || (u->accumulator_buf == NULL)) {
+        ret = -ENOMEM;
+        goto fail;
+    }
+
+    ret = init_unshorten(&u->unshorten);
+    if (ret != 0) {
+        ALOGE("Failed to create unshorten data (%d)", ret);
+        goto fail;
+    }
+
+    u->accumulator_avail = 0;
+    return 0;
+
+fail:
+    free(u->in_buffer);
+    free(u->accumulator_buf);
+    return ret;
+}
+#endif
+
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+static void in_unshorten_free(struct in_unshorten *u)
+{
+    free_unshorten(&u->unshorten);
+    free(u->in_buffer);
+    free(u->accumulator_buf);
+}
+#endif
+
+/*********************************************************************
  * PCM input stream via compressed channel
  *********************************************************************/
 
@@ -1008,6 +1151,15 @@ static int do_open_compress_pcm_in(struct stream_in_pcm *in)
         compress_close(compress);
         goto exit;
     }
+
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+    ret = in_unshorten_init(&in->unshorten, &config);
+    if (ret < 0) {
+        compress_close(compress);
+        goto exit;
+    }
+#endif
+
     in->compress = compress;
     in->common.buffer_size = config.fragment_size * config.fragments * in->common.frame_size;
     compress_start(in->compress);
@@ -1062,6 +1214,10 @@ static void do_in_compress_pcm_standby(struct stream_in_pcm *in)
         in->compress = NULL;
         compress_stop(c);
         compress_close(c);
+
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+        in_unshorten_free(&in->unshorten);
+#endif
     }
     in->common.standby = true;
 
@@ -1084,7 +1240,11 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
         goto exit;
     }
 
+#ifdef COMPRESS_PCM_USE_UNSHORTEN
+    ret = in_unshorten_read(in, buffer, bytes);
+#else
     ret = compress_read(in->compress, buffer, bytes);
+#endif
     ALOGV_IF(ret == 0, "no data");
 
     if (ret > 0) {
