@@ -975,11 +975,6 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
 
     ALOGV("+do_in_compress_pcm_read %d", bytes);
 
-    if (get_current_routes(in->common.hw) == 0) {
-        ALOGV("-do_in_compress_pcm_read(%p) 0 (no routes)", stream);
-        return 0;
-    }
-
     pthread_mutex_lock(&in->common.lock);
     ret = start_compress_pcm_input_stream(in);
 
@@ -1007,15 +1002,6 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
             ts.tv_nsec = interval - t2;
             nanosleep(&ts, NULL);
         }
-    }
-
-    /*
-     * Instead of writing zeroes here, we could trust the hardware
-     * to always provide zeroes when muted.
-     */
-    if (ret == 0 && adev->mic_mute) {
-        memset(buffer, 0, bytes);
-        ret = bytes;
     }
 
 exit:
@@ -1263,12 +1249,7 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
     struct audio_device *adev = in->common.dev;
     size_t frames_rq = bytes / in->common.frame_size;
 
-    ALOGV("+in_pcm_read %d", bytes);
-
-    if (get_current_routes(in->common.hw) == 0) {
-        ALOGV("-in_pcm_read(%p) 0 (no routes)", stream);
-        return 0;
-    }
+    ALOGV("+do_in_pcm_read %d", bytes);
 
     pthread_mutex_lock(&in->common.lock);
     if (in->common.standby) {
@@ -1288,27 +1269,15 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
         ret = pcm_read(in->pcm, buffer, bytes);
     }
 
-    /*
-     * Instead of writing zeroes here, we could trust the hardware
-     * to always provide zeroes when muted.
-     */
-    if (ret == 0 && adev->mic_mute) {
-        memset(buffer, 0, bytes);
-    }
-
+    /* Assume any non-negative return is a successful read */
     if (ret >= 0) {
         ret = bytes;
     }
 
 exit:
-    if (ret < 0) {
-        usleep(bytes * 1000000 / in->common.frame_size /
-               in->common.sample_rate);
-    }
-
     pthread_mutex_unlock(&in->common.lock);
 
-    ALOGV("-in_pcm_read (%d)", ret);
+    ALOGV("-do_in_pcm_read (%d)", ret);
     return ret;
 }
 
@@ -1333,12 +1302,38 @@ static ssize_t in_pcm_read(struct audio_stream_in *stream, void* buffer,
                        size_t bytes)
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
+    struct audio_device *adev = in->common.dev;
+    int ret;
 
-    if (stream_is_compressed_in(in->common.hw)) {
-        return do_in_compress_pcm_read(stream, buffer, bytes);
+    if (get_current_routes(in->common.hw) == 0) {
+        ALOGV("-in_pcm_read(%p) 0 (no routes)", stream);
+        ret = -1;
     } else {
-        return do_in_pcm_read(stream, buffer, bytes);
+        if (stream_is_compressed_in(in->common.hw)) {
+            ret = do_in_compress_pcm_read(stream, buffer, bytes);
+        } else {
+            ret = do_in_pcm_read(stream, buffer, bytes);
+        }
     }
+
+    /* If error, no data or muted, return a buffer of zeros and delay
+     * for the time it would take to capture that much audio at the
+     * current sample rate. AudioFlinger can't do anything useful with
+     * read errors so convert errors into a read of silence
+     */
+    if ((ret <= 0) || adev->mic_mute) {
+        memset(buffer, 0, bytes);
+
+        /* Only delay if we failed to capture any audio */
+        if (ret <= 0) {
+            usleep(bytes * 1000000 / in->common.frame_size /
+                   in->common.sample_rate);
+        }
+
+        ret = bytes;
+    }
+
+    return ret;
 }
 
 static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpairs)
