@@ -155,6 +155,8 @@ struct stream_in_common {
     size_t buffer_size;
 
     int input_source;
+
+    nsecs_t last_read_ns;
 };
 
 struct stream_in_pcm {
@@ -680,6 +682,51 @@ static int in_remove_audio_effect(const struct audio_stream *stream,
     return 0;
 }
 
+static void do_in_set_read_timestamp(struct stream_in_common *in)
+{
+    nsecs_t ns = systemTime(SYSTEM_TIME_MONOTONIC);
+
+    /* 0 is used to mean we don't have a timestamp, so if */
+    /* time count wraps to zero change it to 1 */
+    if (ns == 0) {
+        ns = 1;
+    }
+
+    in->last_read_ns = ns;
+}
+
+/*
+ * Delay for the time it would have taken to read <bytes> since the last
+ * read at the stream sample rate
+ */
+static void do_in_realtime_delay(struct stream_in_common *in, size_t bytes)
+{
+    size_t required_interval;
+    nsecs_t required_ns;
+    nsecs_t elapsed_ns;
+    struct timespec ts;
+
+    if (in->last_read_ns != 0) {
+        /* required interval is calculated so that a left shift 19 places
+         * converts approximately to nanoseconds. This avoids the overhead
+         * of having to do a 64-bit division if we worked entirely in
+         * nanoseconds, and of a large multiply by 1000000 to convert
+         * milliseconds to 64-bit nanoseconds.
+         * (1907 << 19) = 999817216
+         */
+        required_interval = (1907 * bytes) / (in->frame_size * in->sample_rate);
+        required_ns = (nsecs_t)required_interval << 19;
+        elapsed_ns = systemTime(SYSTEM_TIME_MONOTONIC) - in->last_read_ns;
+
+        /* use ~millisecond accurace to ignore trivial nanosecond differences */
+        if (required_interval > (elapsed_ns >> 19)) {
+            ts.tv_sec = 0;
+            ts.tv_nsec = required_ns - elapsed_ns;
+            nanosleep(&ts, NULL);
+        }
+    }
+}
+
 static void do_close_in_common(struct audio_stream *stream)
 {
     struct stream_in_common *in = (struct stream_in_common *)stream;
@@ -966,11 +1013,6 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
     struct audio_device *adev = in->common.dev;
-    size_t frames_rq = bytes / in->common.frame_size;
-    nsecs_t t1;
-    nsecs_t t2;
-    nsecs_t interval;
-    struct timespec ts;
     int ret = 0;
 
     ALOGV("+do_in_compress_pcm_read %d", bytes);
@@ -982,26 +1024,17 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
         goto exit;
     }
 
-    t1 = systemTime(SYSTEM_TIME_MONOTONIC);
     ret = compress_read(in->compress, buffer, bytes);
-    t2 = systemTime(SYSTEM_TIME_MONOTONIC);
 
     if (ret > 0) {
-        /* The interface between AudioFlinger and AudioRecord cannot cope
-         * with bursty data and will lockup for periods if the data does
-         * not come as a smooth stream. So we must limit the rate that we
-         * deliver PCM buffers to approximately how long the buffer would
-         * have taken to read at its PCM sample rate
+        /*
+         * The interface between AudioFlinger and AudioRecord cannot cope
+         * with bursty or high-speed data and will lockup for periods if
+         * the data arrives faster than the app reads it. So we must limit
+         * the rate that we deliver PCM buffers to avoid triggering this
+         * condition. Allow data to be returned up to 4x realtime
          */
-
-        interval = (1000000000LL * (int64_t)ret) / (in->common.frame_size * in->common.sample_rate);
-        interval -= (interval / 4); /* wait for 75% of PCM time to avoid gaps */
-        t2 -= t1; /* elapsed interval */
-        if (interval > t2) {
-            ts.tv_sec = 0;
-            ts.tv_nsec = interval - t2;
-            nanosleep(&ts, NULL);
-        }
+        do_in_realtime_delay(&in->common, bytes / 4);
     }
 
 exit:
@@ -1326,12 +1359,13 @@ static ssize_t in_pcm_read(struct audio_stream_in *stream, void* buffer,
 
         /* Only delay if we failed to capture any audio */
         if (ret <= 0) {
-            usleep(bytes * 1000000 / in->common.frame_size /
-                   in->common.sample_rate);
+            do_in_realtime_delay(&in->common, bytes);
         }
 
         ret = bytes;
     }
+
+    do_in_set_read_timestamp(&in->common);
 
     return ret;
 }
