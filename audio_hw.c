@@ -150,6 +150,7 @@ struct stream_in_common {
      * passing them to hardware, these members refer to the
      * _input_ data from AudioFlinger
      */
+    audio_devices_t devices;
     audio_format_t format;
     uint32_t channel_mask;
     int channel_count;
@@ -211,17 +212,20 @@ static int common_set_parameters_locked(const struct hw_stream *stream, const ch
      * and error if we don't understand any
      */
     ret = -ENOTSUP;
-    p = strtok_r(parms, ";", &temp);
-    while(p) {
-        pval = strchr(p, '=');
-        if (pval && (pval[1] != '\0')) {
-            *pval = '\0';
-            if (apply_use_case(stream, p, pval+1) >= 0) {
-                ret = 0;
+
+    if (stream != NULL) {
+        p = strtok_r(parms, ";", &temp);
+        while(p) {
+            pval = strchr(p, '=');
+            if (pval && (pval[1] != '\0')) {
+                *pval = '\0';
+                if (apply_use_case(stream, p, pval+1) >= 0) {
+                    ret = 0;
+                }
+                *pval = '=';
             }
-            *pval = '=';
+            p = strtok_r(NULL, ";", &temp);
         }
-        p = strtok_r(NULL, ";", &temp);
     }
 
     return ret;
@@ -744,7 +748,10 @@ static void do_close_in_common(struct audio_stream *stream)
     }
     pthread_mutex_unlock(&in->dev->lock);
 
-    release_stream(in->hw);
+    if (in->hw != NULL) {
+        release_stream(in->hw);
+    }
+
     free(stream);
 }
 
@@ -781,8 +788,10 @@ static int do_init_in_common( struct stream_in_common *in,
 
     in->frame_size = audio_stream_frame_size(&in->stream.common);
 
-    /* Apply initial routing */
-    apply_route(in->hw, devices);
+    /* Save devices so we can apply initial routing after we've
+     * been told the input_source and opened the stream
+     */
+    in->devices = devices;
 
     return 0;
 }
@@ -934,6 +943,12 @@ static int do_open_compress_pcm_in(struct stream_in_pcm *in)
     int ret;
 
     ALOGV("+do_open_compress_pcm_in");
+
+    if (in->common.hw == NULL) {
+        ALOGW("input_source not set");
+        ret = -EINVAL;
+        goto exit;
+    }
 
     memset(&codec, 0, sizeof(codec));
     codec.id = SND_AUDIOCODEC_PCM;
@@ -1131,19 +1146,24 @@ static void in_pcm_fill_params(struct stream_in_pcm *in,
 /* must be called with hw device and input stream mutexes locked */
 static int do_open_pcm_input(struct stream_in_pcm *in)
 {
+    struct pcm_config config;
     int ret;
 
-    struct pcm_config config = {
-        .channels = popcount(IN_CHANNEL_MASK_DEFAULT),
-        .rate = in_pcm_cfg_rate(in),
-        .period_size = in_pcm_cfg_period_size(in),
-        .period_count = in_pcm_cfg_period_count(in),
-        .format = PCM_FORMAT_S16_LE,
-    };
-
-    config.start_threshold = config.period_size * config.period_count;
-
     ALOGV("+do_open_pcm_input");
+
+    if (in->common.hw == NULL) {
+        ALOGW("input_source not set");
+        ret = -EINVAL;
+        goto exit;
+    }
+
+    memset(&config, 0, sizeof(config));
+    config.channels = popcount(IN_CHANNEL_MASK_DEFAULT),
+    config.rate = in_pcm_cfg_rate(in),
+    config.period_size = in_pcm_cfg_period_size(in),
+    config.period_count = in_pcm_cfg_period_count(in),
+    config.format = PCM_FORMAT_S16_LE,
+    config.start_threshold = config.period_size * config.period_count;
 
     in->pcm = pcm_open(in->common.hw->card_number,
                        in->common.hw->device_number,
@@ -1178,6 +1198,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 fail:
     pcm_close(in->pcm);
     in->pcm = NULL;
+exit:
     ALOGV("-do_open_pcm_input error:%d", ret);
     return ret;
 }
@@ -1185,16 +1206,16 @@ fail:
 /* must be called with hw device and input stream mutexes locked */
 static int start_pcm_input_stream(struct stream_in_pcm *in)
 {
-    struct audio_device *adev = in->common.dev;
-    int ret;
+    int ret = 0;
 
-    ret = do_open_pcm_input(in);
-
-    if (ret < 0) {
-        return ret;
+    if (in->common.standby) {
+        ret = do_open_pcm_input(in);
+        if (ret == 0) {
+            in->common.standby = 0;
+        }
     }
 
-    return 0;
+    return ret;
 }
 
 static int change_input_source_locked(struct stream_in_pcm *in, const char *value,
@@ -1257,7 +1278,10 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         /* A normal stream will be in standby and therefore device node */
         /* is closed when we get here. */
 
-        release_stream(in->common.hw);
+        if (in->common.hw != NULL) {
+            release_stream(in->common.hw);
+        }
+
         in->common.hw = hw;
 
         pthread_mutex_lock(&adev->lock);
@@ -1288,12 +1312,7 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
     ALOGV("+do_in_pcm_read %d", bytes);
 
     pthread_mutex_lock(&in->common.lock);
-    if (in->common.standby) {
-        ret = start_pcm_input_stream(in);
-        if (ret == 0) {
-            in->common.standby = 0;
-        }
-    }
+    ret = start_pcm_input_stream(in);
 
     if (ret < 0) {
         goto exit;
@@ -1323,10 +1342,12 @@ static int in_pcm_standby(struct audio_stream *stream)
 
     pthread_mutex_lock(&in->common.lock);
 
-    if (stream_is_compressed_in(in->common.hw)) {
-        do_in_compress_pcm_standby(in);
-    } else {
-        do_in_pcm_standby(in);
+    if (in->common.hw != NULL) {
+        if (stream_is_compressed_in(in->common.hw)) {
+            do_in_compress_pcm_standby(in);
+        } else {
+            do_in_pcm_standby(in);
+        }
     }
 
     pthread_mutex_unlock(&in->common.lock);
@@ -1341,9 +1362,12 @@ static ssize_t in_pcm_read(struct audio_stream_in *stream, void* buffer,
     struct audio_device *adev = in->common.dev;
     int ret;
 
-    if (get_current_routes(in->common.hw) == 0) {
-        ALOGV("-in_pcm_read(%p) 0 (no routes)", stream);
-        ret = -1;
+    if (in->common.hw == NULL) {
+        ALOGW("in_pcm_read(%p): no input source for stream", stream);
+        ret = -EINVAL;
+    } else if (get_current_routes(in->common.hw) == 0) {
+        ALOGV("in_pcm_read(%p) (no routes)", stream);
+        ret = -EINVAL;
     } else {
         if (stream_is_compressed_in(in->common.hw)) {
             ret = do_in_compress_pcm_read(stream, buffer, bytes);
@@ -1398,9 +1422,11 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
 
         if (routing_changed) {
             devices = new_routing;
-        } else {
+        } else if (in->common.hw != NULL) {
             /* Route new stream to same devices as current stream */
             devices = get_routed_devices(in->common.hw);
+        } else {
+            devices = 0;
         }
 
         ret = change_input_source_locked(in, value, devices, &input_was_changed);
@@ -1414,8 +1440,12 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
     }
 
     if (routing_changed) {
-        ALOGV("Apply routing=0x%x to input stream", new_routing);
-        apply_route(in->common.hw, new_routing);
+        in->common.devices = new_routing;
+
+        if (in->common.hw) {
+            ALOGV("Apply routing=0x%x to input stream", new_routing);
+            apply_route(in->common.hw, new_routing);
+        }
         ret = 0;
     }
 
@@ -1433,9 +1463,12 @@ static void do_close_in_pcm(struct audio_stream *stream)
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
 
-    if (stream_is_compressed(in->common.hw)) {
-        do_in_compress_pcm_close(in);
+    if (in->common.hw != NULL) {
+        if (stream_is_compressed(in->common.hw)) {
+            do_in_compress_pcm_close(in);
+        }
     }
+
     do_close_in_common(stream);
 }
 
@@ -1447,14 +1480,11 @@ static int do_init_in_pcm( struct stream_in_pcm *in,
     in->common.stream.common.set_parameters = in_pcm_set_parameters;
     in->common.stream.read = in_pcm_read;
 
-    /* Default settings for stereo capture */
-    in->common.buffer_size = in_pcm_cfg_period_size(in)
-                           * in_pcm_cfg_period_count(in)
-                           * 2;
-
-    if (in->common.buffer_size > IN_COMPRESS_BUFFER_SIZE_DEFAULT) {
-        in->common.buffer_size = IN_COMPRESS_BUFFER_SIZE_DEFAULT;
-    }
+    /* Although AudioFlinger has not yet told us the input_source for
+     * this stream, it expects us to already know the buffer size.
+     * We just have to hardcode something that might work
+     */
+    in->common.buffer_size = IN_COMPRESS_BUFFER_SIZE_DEFAULT;
 
     return 0;
 }
@@ -1538,7 +1568,6 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 {
     struct audio_device *adev = (struct audio_device *)dev;
     struct stream_in_pcm *in = NULL;
-    const struct hw_stream *hw = NULL;
     int ret;
 
     ALOGV("+adev_open_input_stream");
@@ -1552,14 +1581,10 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
         goto fail;
     }
 
-    devices &= AUDIO_DEVICE_IN_ALL;
-    hw = get_stream(adev->cm, devices, 0, config);
-    if (!hw) {
-        ALOGE("No suitable input stream for devices=0x%x format=0x%x",
-                    devices, config->format );
-        ret = -EINVAL;
-        goto fail;
-    }
+    /* We don't open a config manager stream here because we don't yet
+     * know what input_source to use. Defer until Android sends us an
+     * input_source set_parameter()
+     */
 
     in = (struct stream_in_pcm *)calloc(1, sizeof(struct stream_in_pcm));
     if (!in) {
@@ -1568,12 +1593,14 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     }
 
     in->common.dev = adev;
-    in->common.hw = hw;
-    ret = do_init_in_common( &in->common, config, devices );
+
+    devices &= AUDIO_DEVICE_IN_ALL;
+    ret = do_init_in_common(&in->common, config, devices);
     if (ret < 0) {
         goto fail;
     }
-    ret = do_init_in_pcm( in, config );
+
+    ret = do_init_in_pcm(in, config);
     if (ret < 0) {
         goto fail;
     }
@@ -1583,7 +1610,6 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 
 fail:
     free(in);
-    free((void *)hw);
     ALOGV("-adev_open_input_stream (%d)", ret);
     return ret;
 }
