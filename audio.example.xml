@@ -212,6 +212,12 @@ Anonymous PCM streams should not normally have an instance limit.
 
 TinyHAL defines some specific named streams:
 
+"voice recognition" - a PCM or compressed stream for voice recognition input.
+                      If a stream with this name is not defined TinyHAL will
+                      use the normal PCM input stream for voice recognition audio.
+                      This stream will also be enabled when TinyHAL is told to
+                      'arm' the hardware voice trigger.
+
 "voice trigger" - a hardware stream for always-on voice trigger that _only_
                   supports triggering. This stream will be enabled when TinyHAL
                   is told to 'arm' the trigger.

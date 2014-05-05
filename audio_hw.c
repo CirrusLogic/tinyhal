@@ -70,6 +70,23 @@
 /* Maximum time we'll wait for data from a compress_pcm input */
 #define MAX_COMPRESS_PCM_TIMEOUT_MS     2100
 
+/* Voice trigger and voice recognition stream names */
+const char kVoiceTriggerStreamName[] = "voice trigger";
+const char kVoiceRecogStreamName[] = "voice recognition";
+
+/* States for voice trigger / voice recognition state machine */
+enum voice_state {
+    eVoiceNone,             /* no voice recognition hardware */
+    eVoiceTriggerIdle,      /* Trigger-only mode idle */
+    eVoiceTriggerArmed,     /* Trigger-only mode armed */
+    eVoiceTriggerFired,     /* Trigger-only mode received trigger */
+    eVoiceRecogIdle,        /* Full trigger+audio mode idle */
+    eVoiceRecogArmed,       /* Full trigger+audio mode armed */
+    eVoiceRecogFired,       /* Full trigger+audio mode received trigger */
+    eVoiceRecogAudio,       /* Full trigger+audio mode opened for audio */
+    eVoiceRecogReArm        /* Re-arm after audio */
+};
+
 struct audio_device {
     struct audio_hw_device hw_device;
 
@@ -80,8 +97,16 @@ struct audio_device {
 
     struct stream_in_pcm *active_voice_control;
 
-    const struct hw_stream* voice_trig_stream;
+    enum voice_state voice_st;
     audio_devices_t voice_trig_mic;
+
+    union {
+        /* config stream for trigger-only operation */
+        const struct hw_stream* voice_trig_stream;
+
+        /* config stream for trigger+voice operation */
+        const struct hw_stream* voice_recog_stream;
+    };
 };
 
 
@@ -187,6 +212,9 @@ enum {
 
 static uint32_t out_get_sample_rate(const struct audio_stream *stream);
 static uint32_t in_get_sample_rate(const struct audio_stream *stream);
+static void voice_trigger_audio_started_locked(struct audio_device *adev);
+static void voice_trigger_audio_ended_locked(struct audio_device *adev);
+static const char *voice_trigger_audio_stream_name(struct audio_device *adev);
 
 /*********************************************************************
  * Stream common functions
@@ -737,16 +765,19 @@ static void do_in_realtime_delay(struct stream_in_common *in, size_t bytes)
 static void do_close_in_common(struct audio_stream *stream)
 {
     struct stream_in_common *in = (struct stream_in_common *)stream;
+    struct audio_device *adev = in->dev;
+
     in->stream.common.standby(stream);
 
     /* active_voice_control is not cleared by standby so we must
      * clear it here when stream is closed
      */
-    pthread_mutex_lock(&in->dev->lock);
+    pthread_mutex_lock(&adev->lock);
     if ((struct stream_in_common *)in->dev->active_voice_control == in) {
         in->dev->active_voice_control = NULL;
+        voice_trigger_audio_ended_locked(adev);
     }
-    pthread_mutex_unlock(&in->dev->lock);
+    pthread_mutex_unlock(&adev->lock);
 
     if (in->hw != NULL) {
         release_stream(in->hw);
@@ -991,6 +1022,7 @@ exit:
 static int start_compress_pcm_input_stream(struct stream_in_pcm *in)
 {
     struct audio_device *adev = in->common.dev;
+    int ms;
     int ret;
 
     ALOGV("start_compress_pcm_input_stream");
@@ -1000,6 +1032,16 @@ static int start_compress_pcm_input_stream(struct stream_in_pcm *in)
         if (ret < 0) {
             return ret;
         }
+
+        /*
+         * We must not block AudioFlinger so limit the time that tinycompress
+         * will block for data to around twice the time it would take to fetch
+         * a buffer of data at the configured sample rate
+         */
+        ms = (1000LL * in->common.buffer_size) / (in->common.frame_size *
+                                                  in->common.sample_rate);
+
+        compress_set_max_poll_wait(in->compress, ms * 2);
 
         in->common.standby = 0;
     }
@@ -1043,6 +1085,7 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
     }
 
     ret = compress_read(in->compress, buffer, bytes);
+    ALOGV_IF(ret == 0, "no data");
 
     if (ret > 0) {
         /*
@@ -1248,7 +1291,11 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         /* We should verify here that current frame size, sample rate and
          * channels are compatible
          */
-        stream_name = "voice recognition";
+
+        /* depends on voice recognition type and state whether we open
+         * the voice recognition stream or generic PCM stream
+         */
+        stream_name = voice_trigger_audio_stream_name(adev);
         voice_control = true;
         break;
 
@@ -1287,8 +1334,10 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         pthread_mutex_lock(&adev->lock);
         if (voice_control) {
             adev->active_voice_control = in;
+            voice_trigger_audio_started_locked(adev);
         } else if (adev->active_voice_control == in) {
             adev->active_voice_control = NULL;
+            voice_trigger_audio_ended_locked(adev);
         }
         pthread_mutex_unlock(&adev->lock);
 
@@ -1623,52 +1672,205 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
 }
 
 /*********************************************************************
- * Voice trigger
+ * Voice trigger state machine
  *********************************************************************/
 
-static void voice_trigger_enable(struct audio_device *adev)
+static void do_voice_trigger_open_stream(struct audio_device *adev, const char *streamName)
 {
     audio_devices_t mic_device;
 
-    ALOGV("+voice_trigger_enable");
+    adev->voice_trig_stream = get_named_stream(adev->cm, streamName);
 
+    if (adev->voice_trig_stream != NULL) {
+        if (adev->voice_trig_mic == 0) {
+            /* No mic specified, default to internal mic */
+            mic_device = AUDIO_DEVICE_IN_BUILTIN_MIC;
+        } else {
+            mic_device = adev->voice_trig_mic;
+        }
+
+        apply_route(adev->voice_trig_stream, mic_device);
+    }
+}
+
+static void do_voice_trigger_close_stream(struct audio_device *adev)
+{
+    if (adev->voice_trig_stream != NULL) {
+        apply_route(adev->voice_trig_stream, 0);
+        release_stream(adev->voice_trig_stream);
+        adev->voice_trig_stream == NULL;
+    }
+}
+
+static void voice_trigger_enable(struct audio_device *adev)
+{
     pthread_mutex_lock(&adev->lock);
 
-    if (!adev->voice_trig_stream) {
-        adev->voice_trig_stream = get_named_stream(adev->cm, "voice trigger");
+    ALOGV("+voice_trigger_enable (%u)", adev->voice_st);
 
-        if (adev->voice_trig_stream != NULL) {
-            if (adev->voice_trig_mic == 0) {
-                /* No mic specified, default to internal mic */
-                mic_device = AUDIO_DEVICE_IN_BUILTIN_MIC;
-            } else {
-                mic_device = adev->voice_trig_mic;
-            }
+    switch (adev->voice_st) {
+        case eVoiceNone:
+            break;
 
-            apply_route(adev->voice_trig_stream, mic_device);
-        }
+        case eVoiceTriggerIdle:
+        case eVoiceTriggerFired:
+            do_voice_trigger_open_stream(adev, kVoiceTriggerStreamName);
+            adev->voice_st = eVoiceTriggerArmed;
+            break;
+
+        case eVoiceTriggerArmed:
+            break;
+
+        case eVoiceRecogIdle:
+            do_voice_trigger_open_stream(adev, kVoiceRecogStreamName);
+            adev->voice_st = eVoiceRecogArmed;
+            break;
+
+        case eVoiceRecogArmed:
+        case eVoiceRecogFired:
+        case eVoiceRecogReArm:
+            break;
+
+        case eVoiceRecogAudio:
+            adev->voice_st = eVoiceRecogReArm;
+            break;
     }
 
-    pthread_mutex_unlock(&adev->lock);
+    ALOGV("-voice_trigger_enable (%u)", adev->voice_st);
 
-    ALOGV("-voice_trigger_enable");
+    pthread_mutex_unlock(&adev->lock);
 }
 
 static void voice_trigger_disable(struct audio_device *adev)
 {
-    ALOGV("+voice_trigger_disable");
-
     pthread_mutex_lock(&adev->lock);
 
-    if (adev->voice_trig_stream) {
-        apply_route(adev->voice_trig_stream, 0);
-        release_stream(adev->voice_trig_stream);
-        adev->voice_trig_stream = NULL;
+    ALOGV("+voice_trigger_disable (%u)", adev->voice_st);
+
+    switch (adev->voice_st) {
+        case eVoiceNone:
+            break;
+
+        case eVoiceTriggerIdle:
+            break;
+
+        case eVoiceTriggerFired:
+        case eVoiceTriggerArmed:
+            do_voice_trigger_close_stream(adev);
+            adev->voice_st = eVoiceTriggerIdle;
+            break;
+
+        case eVoiceRecogIdle:
+            break;
+
+        case eVoiceRecogArmed:
+            do_voice_trigger_close_stream(adev);
+            adev->voice_st = eVoiceRecogIdle;
+            break;
+
+        case eVoiceRecogFired:
+        case eVoiceRecogAudio:
+            /* If a full trigger+audio stream has fired we must wait for the */
+            /* audio capture stage to end before disabling it                */
+            break;
+
+        case eVoiceRecogReArm:
+            /* See note on previous case */
+            adev->voice_st = eVoiceRecogAudio;
+            break;
     }
 
-    pthread_mutex_unlock(&adev->lock);
+    ALOGV("-voice_trigger_disable (%u)", adev->voice_st);
 
-    ALOGV("-voice_trigger_disable");
+    pthread_mutex_unlock(&adev->lock);
+}
+
+static void voice_trigger_triggered(struct audio_device *adev)
+{
+    pthread_mutex_lock(&adev->lock);
+
+    ALOGV("+voice_trigger_triggered (%u)", adev->voice_st);
+
+    switch (adev->voice_st) {
+        case eVoiceNone:
+        case eVoiceTriggerIdle:
+        case eVoiceTriggerFired:
+            break;
+
+        case eVoiceTriggerArmed:
+            adev->voice_st = eVoiceTriggerFired;
+            break;
+
+        case eVoiceRecogIdle:
+        case eVoiceRecogFired:
+        case eVoiceRecogAudio:
+        case eVoiceRecogReArm:
+            break;
+
+        case eVoiceRecogArmed:
+            adev->voice_st = eVoiceRecogFired;
+            break;
+    }
+
+    ALOGV("-voice_trigger_triggered (%u)", adev->voice_st);
+
+    pthread_mutex_unlock(&adev->lock);
+}
+
+static void voice_trigger_audio_started_locked(struct audio_device *adev)
+{
+    ALOGV("+voice_trigger_audio_started (%u)", adev->voice_st);
+
+    switch (adev->voice_st) {
+        case eVoiceNone:
+        case eVoiceTriggerIdle:
+        case eVoiceTriggerArmed:
+        case eVoiceTriggerFired:
+            break;
+
+        case eVoiceRecogIdle:
+        case eVoiceRecogArmed:
+            break;
+
+        case eVoiceRecogFired:
+            adev->voice_st = eVoiceRecogAudio;
+            break;
+
+        case eVoiceRecogAudio:
+        case eVoiceRecogReArm:
+            break;
+    }
+
+    ALOGV("-voice_trigger_audio_started (%d)", adev->voice_st);
+}
+
+static void voice_trigger_audio_ended_locked(struct audio_device *adev)
+{
+    ALOGV("+voice_trigger_audio_ended (%u)", adev->voice_st);
+
+    switch (adev->voice_st) {
+        case eVoiceNone:
+        case eVoiceTriggerIdle:
+        case eVoiceTriggerArmed:
+        case eVoiceTriggerFired:
+            break;
+
+        case eVoiceRecogIdle:
+        case eVoiceRecogArmed:
+        case eVoiceRecogFired:
+            break;
+
+        case eVoiceRecogAudio:
+            do_voice_trigger_close_stream(adev);
+            adev->voice_st = eVoiceRecogIdle;
+            break;
+
+        case eVoiceRecogReArm:
+            adev->voice_st = eVoiceRecogArmed;
+            break;
+    }
+
+    ALOGV("-voice_trigger_audio_ended (%d)", adev->voice_st);
 }
 
 static void voice_trigger_set_params(struct audio_device *adev, struct str_parms *parms)
@@ -1683,11 +1885,63 @@ static void voice_trigger_set_params(struct audio_device *adev, struct str_parms
 
     ret = str_parms_get_str(parms, "voice_trigger", value, sizeof(value));
     if (ret >= 0) {
-        if (strcmp(value, "1") == 0) {
+        if (strcmp(value, "2") == 0) {
+            voice_trigger_triggered(adev);
+        } else if (strcmp(value, "1") == 0) {
             voice_trigger_enable(adev);
         } else if (strcmp(value, "0") == 0) {
             voice_trigger_disable(adev);
         }
+    }
+}
+
+static const char *voice_trigger_audio_stream_name(struct audio_device *adev)
+{
+    /* no need to lock adev because we only need the instantaneous state */
+    switch (adev->voice_st) {
+        case eVoiceNone:
+        case eVoiceTriggerIdle:
+        case eVoiceTriggerArmed:
+        case eVoiceTriggerFired:
+            /* trigger-only hardware, so attempt to open a specific
+             * voice recognition stream
+             */
+            return kVoiceRecogStreamName;
+
+        case eVoiceRecogIdle:
+        case eVoiceRecogArmed:
+        case eVoiceRecogReArm:
+            /* recognizer has not fired, do not open the dedicated audio stream
+             * because there will not be any audio available from it. Fall
+             * back to just opening the normal recording path
+             */
+            return NULL;
+
+        case eVoiceRecogFired:
+            /* recognizer has fired so audio will be available from it */
+            return kVoiceRecogStreamName;
+
+        case eVoiceRecogAudio:
+            /* should never get here, state says audio stream is already open */
+            return NULL;
+
+        default:
+            /* stops compiler warning */
+            return NULL;
+    }
+}
+
+static void voice_trigger_init(struct audio_device *adev)
+{
+    if (is_named_stream_defined(adev->cm, kVoiceRecogStreamName)) {
+        ALOGV("Voice recognition mode");
+        adev->voice_st = eVoiceRecogIdle;
+    } else if (is_named_stream_defined(adev->cm, kVoiceTriggerStreamName)) {
+        ALOGV("Voice trigger mode");
+        adev->voice_st = eVoiceTriggerIdle;
+    } else {
+        ALOGV("no voice recognition available");
+        adev->voice_st = eVoiceNone;
     }
 }
 
@@ -1728,9 +1982,9 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
         }
     }
 
-    voice_trigger_set_params(adev, parms);
-
     pthread_mutex_unlock(&adev->lock);
+
+    voice_trigger_set_params(adev, parms);
 
     str_parms_destroy(parms);
     return ret;
@@ -1844,6 +2098,8 @@ static int adev_open(const hw_module_t* module, const char* name,
         ret = -EINVAL;
         goto fail;
     }
+
+    voice_trigger_init(adev);
 
     adev->orientation = ORIENTATION_UNDEFINED;
 
