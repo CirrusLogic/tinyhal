@@ -55,13 +55,13 @@
 
 #define OUT_PERIOD_SIZE_DEFAULT 1024
 #define OUT_PERIOD_COUNT_DEFAULT 4
-#define OUT_SAMPLING_RATE_DEFAULT 44100
 #define OUT_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_OUT_STEREO
+#define OUT_CHANNEL_COUNT_DEFAULT 2
 
 #define IN_PERIOD_COUNT_DEFAULT 4
 #define IN_PERIOD_SIZE_DEFAULT 1024
-#define IN_SAMPLING_RATE_DEFAULT 44100
 #define IN_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_IN_MONO
+#define IN_CHANNEL_COUNT_DEFAULT 1
 
 /* AudioFlinger does not re-read the buffer size after
  * issuing a routing or input_source change so the
@@ -302,7 +302,16 @@ static int common_get_routing_param(uint32_t *vout, const char *kvpairs)
 static uint32_t out_get_sample_rate(const struct audio_stream *stream)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
-    return out->sample_rate;
+    uint32_t rate;
+
+    if (out->sample_rate != 0) {
+        rate = out->sample_rate;
+    } else {
+        rate = out->hw->rate;
+    }
+
+    ALOGV("out_get_sample_rate=%u", rate);
+    return rate;
 }
 
 static int out_set_sample_rate(struct audio_stream *stream, uint32_t rate)
@@ -317,10 +326,19 @@ static size_t out_get_buffer_size(const struct audio_stream *stream)
     return out->buffer_size;
 }
 
-static uint32_t out_get_channels(const struct audio_stream *stream)
+static audio_channel_mask_t out_get_channels(const struct audio_stream *stream)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
-    return out->channel_mask;
+    audio_channel_mask_t mask;
+
+    if (out->channel_mask != 0) {
+        mask = out->channel_mask;
+    } else {
+        mask = OUT_CHANNEL_MASK_DEFAULT;
+    }
+
+    ALOGV("out_get_channels=%x", mask);
+    return mask;
 }
 
 static audio_format_t out_get_format(const struct audio_stream *stream)
@@ -438,6 +456,10 @@ static int do_init_out_common( struct stream_out_common *out,
 {
     int ret;
 
+    ALOGV("do_init_out_common rate=%u channels=%x",
+                config->sample_rate,
+                config->channel_mask);
+
     out->standby = true;
 
     out->stream.common.get_sample_rate = out_get_sample_rate;
@@ -457,12 +479,8 @@ static int do_init_out_common( struct stream_out_common *out,
 
     /* init requested stream config */
     out->format = config->format;
-    out->sample_rate = (config->sample_rate == 0)
-                                    ? OUT_SAMPLING_RATE_DEFAULT
-                                    : config->sample_rate;
-    out->channel_mask = (config->channel_mask == 0)
-                                    ? OUT_CHANNEL_MASK_DEFAULT
-                                    : config->channel_mask;
+    out->sample_rate = config->sample_rate;
+    out->channel_mask = config->channel_mask;
     out->channel_count = popcount(out->channel_mask);
 
     /* Default settings */
@@ -498,10 +516,15 @@ static unsigned int out_pcm_cfg_period_size(struct stream_out_pcm *out)
 
 static unsigned int out_pcm_cfg_rate(struct stream_out_pcm *out)
 {
-    if (out->common.hw->rate != 0) {
-        return out->common.hw->rate;
+    return out->common.hw->rate;
+}
+
+static unsigned int out_pcm_cfg_channel_count(struct stream_out_pcm *out)
+{
+    if (out->common.channel_count != 0) {
+        return out->common.channel_count;
     } else {
-        return OUT_SAMPLING_RATE_DEFAULT;
+        return OUT_CHANNEL_COUNT_DEFAULT;
     }
 }
 
@@ -540,7 +563,7 @@ static int start_output_pcm(struct stream_out_pcm *out)
     int ret;
 
     struct pcm_config config = {
-        .channels = out->common.channel_count,
+        .channels = out_pcm_cfg_channel_count(out),
         .rate = out_pcm_cfg_rate(out),
         .period_size = out_pcm_cfg_period_size(out),
         .period_count = out_pcm_cfg_period_count(out),
@@ -635,11 +658,6 @@ static void do_close_out_pcm(struct audio_stream *stream)
 static int do_init_out_pcm( struct stream_out_pcm *out,
                                     const struct audio_config *config )
 {
-    if (config->sample_rate != out_pcm_cfg_rate(out)) {
-        ALOGE("AF requested rate %u not supported", config->sample_rate);
-        return -ENOTSUP;
-    }
-
     out->common.close = do_close_out_pcm;
     out->common.stream.common.standby = out_pcm_standby;
     out->common.stream.write = out_pcm_write;
@@ -657,8 +675,16 @@ static int do_init_out_pcm( struct stream_out_pcm *out,
 static uint32_t in_get_sample_rate(const struct audio_stream *stream)
 {
     const struct stream_in_common *in = (struct stream_in_common *)stream;
+    uint32_t rate;
 
-    return in->sample_rate;
+    if (in->sample_rate != 0) {
+        rate = in->sample_rate;
+    } else {
+        rate = in->hw->rate;
+    }
+
+    ALOGV("in_get_sample_rate=%u", rate);
+    return rate;
 }
 
 static int in_set_sample_rate(struct audio_stream *stream, uint32_t rate)
@@ -675,8 +701,16 @@ static int in_set_sample_rate(struct audio_stream *stream, uint32_t rate)
 static audio_channel_mask_t in_get_channels(const struct audio_stream *stream)
 {
     const struct stream_in_common *in = (struct stream_in_common *)stream;
+    audio_channel_mask_t mask;
 
-    return in->channel_mask;
+    if (in->channel_mask != 0) {
+        mask = in->channel_mask;
+    } else {
+        mask = IN_CHANNEL_MASK_DEFAULT;
+    }
+
+    ALOGV("in_get_channels=0x%x", mask);
+    return mask;
 }
 
 static audio_format_t in_get_format(const struct audio_stream *stream)
@@ -828,12 +862,8 @@ static int do_init_in_common( struct stream_in_common *in,
 
     /* init requested stream config */
     in->format = config->format;
-    in->sample_rate = (config->sample_rate == 0)
-                                    ? IN_SAMPLING_RATE_DEFAULT
-                                    : config->sample_rate;
-    in->channel_mask = (config->channel_mask == 0)
-                                    ? IN_CHANNEL_MASK_DEFAULT
-                                    : config->channel_mask;
+    in->sample_rate = config->sample_rate;
+    in->channel_mask = config->channel_mask;
     in->channel_count = popcount(in->channel_mask);
 
     in->frame_size = audio_stream_frame_size(&in->stream.common);
@@ -1301,10 +1331,15 @@ static unsigned int in_pcm_cfg_period_size(struct stream_in_pcm *in)
 
 static unsigned int in_pcm_cfg_rate(struct stream_in_pcm *in)
 {
-    if (in->common.hw->rate != 0) {
-        return in->common.hw->rate;
+    return in->common.hw->rate;
+}
+
+static unsigned int in_pcm_cfg_channel_count(struct stream_in_pcm *in)
+{
+    if (in->common.channel_count != 0) {
+        return in->common.channel_count;
     } else {
-        return IN_SAMPLING_RATE_DEFAULT;
+        return IN_CHANNEL_COUNT_DEFAULT;
     }
 }
 
@@ -1361,7 +1396,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
     }
 
     memset(&config, 0, sizeof(config));
-    config.channels = popcount(IN_CHANNEL_MASK_DEFAULT),
+    config.channels = in_pcm_cfg_channel_count(in);
     config.rate = in_pcm_cfg_rate(in),
     config.period_size = in_pcm_cfg_period_size(in),
     config.period_count = in_pcm_cfg_period_count(in),
