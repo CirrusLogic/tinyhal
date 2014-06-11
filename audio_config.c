@@ -1721,7 +1721,7 @@ static int parse_stream_start(struct parse_state *state)
         return -EINVAL;
     }
 
-    if (attrib_to_uint(&s->info.period_count, state,
+    if (attrib_to_uint(&s->info.period_size, state,
                         e_attrib_period_size) == -EINVAL) {
         return -EINVAL;
     }
