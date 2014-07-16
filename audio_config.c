@@ -497,11 +497,23 @@ void apply_route( const struct hw_stream *stream, uint32_t devices )
 
     ALOGV("apply_route(%p) devices=0x%x", stream, devices);
 
-    if (stream_is_input(stream)) {
-        devices &= AUDIO_DEVICE_IN_ALL;
-        devices |= AUDIO_DEVICE_BIT_IN;
-    } else {
-        devices &= AUDIO_DEVICE_OUT_ALL;
+    if (devices != 0) {
+        if (devices & AUDIO_DEVICE_BIT_IN) {
+            if (!stream_is_input(stream)) {
+                ALOGE("Attempting to set input routing %x on output stream %p",
+                        devices, stream);
+                return;
+            }
+            devices &= AUDIO_DEVICE_IN_ALL;
+            devices |= AUDIO_DEVICE_BIT_IN;
+        } else {
+            if (stream_is_input(stream)) {
+                ALOGE("Attempting to set output routing %x on input stream %p",
+                        devices, stream);
+                return;
+            }
+            devices &= AUDIO_DEVICE_OUT_ALL;
+        }
     }
 
     pthread_mutex_lock(&cm->lock);
