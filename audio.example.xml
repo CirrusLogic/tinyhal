@@ -185,7 +185,7 @@ decompressed in hardware, or a record stream provides raw compressed data that
 must be decompressed in software.
 
 Named streams can be declared as type "hw", to represent a hardware-hardware
-link where specifying a data type and direction would be meaningless.
+link.
 
 Mandatory attributes for PCM and compressed streams:
     type    must be "pcm" or "compress"
@@ -193,11 +193,13 @@ Mandatory attributes for PCM and compressed streams:
 
 Mandatory for named streams:
     type    must be "pcm", "compress" or "hw"
+    dir     direction of stream, either "in" (recording) or "out" (playback)
     name    a custom name for a named stream. The name you choose here must
                 match the name your HAL will use to request this stream
 
 Mandatory for hw streams:
     type    must be "hw"
+    dir     direction of stream, either "in" (recording) or "out" (playback)
     name    a custom name for the stream (hw streams must be named streams)
 
 Optional attributes:

@@ -822,7 +822,7 @@ static const struct parse_element elem_table[e_elem_count] = {
                             | BIT(e_attrib_device) | BIT(e_attrib_instances)
                             | BIT(e_attrib_rate) | BIT(e_attrib_period_size)
                             | BIT(e_attrib_period_count),
-        .required_attribs = BIT(e_attrib_type),
+        .required_attribs = BIT(e_attrib_type) | BIT(e_attrib_dir),
         .valid_subelem = BIT(e_elem_stream_ctl)
                             | BIT(e_elem_enable) | BIT(e_elem_disable)
                             | BIT(e_elem_usecase),
@@ -1665,39 +1665,32 @@ static int parse_stream_start(struct parse_state *state)
         return -ENOMEM;
     }
 
+    if (0 == strcmp(dir, "out")) {
+        out = true;
+    } else if (0 == strcmp(dir, "in")) {
+        out = false;
+    } else {
+        ALOGE("'%s' is not a valid direction", dir);
+        return -EINVAL;
+    }
+
     if (0 == strcmp(type, "hw")) {
         if (name == NULL) {
             ALOGE("Anonymous stream cannot be type hw");
             return -EINVAL;
         }
-        s->info.type = e_stream_hardware;
+        s->info.type = out ? e_stream_out_hw : e_stream_in_hw;
+    } else if (0 == strcmp(type, "pcm")) {
+        s->info.type = out ? e_stream_out_pcm : e_stream_in_pcm;
+        card = PCM_CARD_DEFAULT;
+        device = PCM_DEVICE_DEFAULT;
+    } else if (0 == strcmp(type, "compress")) {
+        s->info.type = out ? e_stream_out_compress : e_stream_in_compress;
+        card = COMPRESS_CARD_DEFAULT;
+        device = COMPRESS_DEVICE_DEFAULT;
     } else {
-        if (dir == NULL) {
-            ALOGE("dir tag missing");
-            return -EINVAL;
-        }
-
-        if (0 == strcmp(dir, "out")) {
-            out = true;
-        } else if (0 == strcmp(dir, "in")) {
-            out = false;
-        } else {
-            ALOGE("'%s' is not a valid direction", dir);
-            return -EINVAL;
-        }
-
-        if (0 == strcmp(type, "pcm")) {
-            s->info.type = out ? e_stream_out_pcm : e_stream_in_pcm;
-            card = PCM_CARD_DEFAULT;
-            device = PCM_DEVICE_DEFAULT;
-        } else if (0 == strcmp(type, "compress")) {
-            s->info.type = out ? e_stream_out_compress : e_stream_in_compress;
-            card = COMPRESS_CARD_DEFAULT;
-            device = COMPRESS_DEVICE_DEFAULT;
-        } else {
-            ALOGE("'%s' not a valid stream type", type);
-            return -EINVAL;
-        }
+        ALOGE("'%s' not a valid stream type", type);
+        return -EINVAL;
     }
 
     if (attrib_to_uint(&card, state, e_attrib_card) == -EINVAL) {

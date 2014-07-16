@@ -30,7 +30,8 @@ enum stream_type {
     e_stream_in_pcm,
     e_stream_out_compress,
     e_stream_in_compress,
-    e_stream_hardware           /* unspecified type routed in hardware */
+    e_stream_out_hw,
+    e_stream_in_hw,
 };
 
 /** Information about a stream */
@@ -47,7 +48,8 @@ struct hw_stream {
 static inline bool stream_is_input( const struct hw_stream *stream )
 {
     return (stream->type == e_stream_in_pcm)
-        || (stream->type == e_stream_in_compress);
+        || (stream->type == e_stream_in_compress)
+        || (stream->type == e_stream_in_hw);
 }
 
 /** Test whether a stream is PCM */
@@ -91,7 +93,8 @@ return (stream->type == e_stream_in_compress);
 /** Test whether stream is a hardware link */
 static inline bool stream_is_hardware( const struct hw_stream *stream )
 {
-return (stream->type == e_stream_hardware);
+return (stream->type == e_stream_out_hw)
+    || (stream->type == e_stream_in_hw);
 }
 
 /** Initialize audio config layer */
