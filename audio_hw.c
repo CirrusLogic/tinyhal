@@ -53,13 +53,14 @@
 #include <libunshorten/unshorten.h>
 #endif
 
-#define OUT_PERIOD_SIZE_DEFAULT 1024
+/* These values are defined in _frames_ (not bytes) to match the ALSA API */
+#define OUT_PERIOD_SIZE_DEFAULT 256
 #define OUT_PERIOD_COUNT_DEFAULT 4
 #define OUT_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_OUT_STEREO
 #define OUT_CHANNEL_COUNT_DEFAULT 2
 
+#define IN_PERIOD_SIZE_DEFAULT 256
 #define IN_PERIOD_COUNT_DEFAULT 4
-#define IN_PERIOD_SIZE_DEFAULT 1024
 #define IN_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_IN_MONO
 #define IN_CHANNEL_COUNT_DEFAULT 1
 
@@ -68,7 +69,7 @@
  * default buffer size must be suitable for both PCM
  * and compressed inputs
  */
-#define IN_COMPRESS_BUFFER_SIZE_DEFAULT 8192
+#define IN_COMPRESS_BUFFER_SIZE_DEFAULT 1024
 
 /* Maximum time we'll wait for data from a compress_pcm input */
 #define MAX_COMPRESS_PCM_TIMEOUT_MS     2100
@@ -549,11 +550,9 @@ static void out_pcm_fill_params(struct stream_out_pcm *out,
 {
     out->hw_sample_rate = config->rate;
     out->hw_channel_count = config->channels;
-    out->common.buffer_size = pcm_frames_to_bytes(out->pcm,
-                                                pcm_get_buffer_size(out->pcm));
+    out->common.buffer_size = pcm_frames_to_bytes(out->pcm, config->period_size);
 
-    out->common.latency = (config->period_size * config->period_count * 1000)
-                                / config->rate;
+    out->common.latency = (config->period_size * 1000) / config->rate;
 }
 
 /* must be called with hw device and output stream mutexes locked */
@@ -663,9 +662,8 @@ static int do_init_out_pcm( struct stream_out_pcm *out,
     out->common.stream.write = out_pcm_write;
     out->common.stream.get_render_position = out_pcm_get_render_position;
 
-    out->common.buffer_size = out_pcm_cfg_period_size(out)
-                               * out_pcm_cfg_period_count(out)
-                               * out->common.frame_size;
+    out->common.buffer_size = out_pcm_cfg_period_size(out) * out->common.frame_size;
+
     return 0;
 }
 
@@ -1401,7 +1399,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
     config.period_size = in_pcm_cfg_period_size(in),
     config.period_count = in_pcm_cfg_period_count(in),
     config.format = PCM_FORMAT_S16_LE,
-    config.start_threshold = config.period_size * config.period_count;
+    config.start_threshold = 0;
 
     in->pcm = pcm_open(in->common.hw->card_number,
                        in->common.hw->device_number,
@@ -1425,7 +1423,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
      */
     if (in_get_sample_rate(&in->common.stream.common) != config.rate) {
         ret = in_resampler_init(in, config.rate, config.channels,
-                                config.period_size * config.period_count);
+                                pcm_frames_to_bytes(in->pcm, config.period_size));
         if (ret < 0) {
             goto fail;
         }
@@ -2232,7 +2230,10 @@ static int adev_get_mic_mute(const struct audio_hw_device *dev, bool *state)
 static size_t adev_get_input_buffer_size(const struct audio_hw_device *dev,
                                          const struct audio_config *config)
 {
-    size_t s = IN_PERIOD_SIZE_DEFAULT * IN_PERIOD_COUNT_DEFAULT * 2;
+    size_t s = IN_PERIOD_SIZE_DEFAULT *
+                    audio_bytes_per_sample(config->format) *
+                    popcount(config->channel_mask);
+
     if (s > IN_COMPRESS_BUFFER_SIZE_DEFAULT) {
         s = IN_COMPRESS_BUFFER_SIZE_DEFAULT;
     }
