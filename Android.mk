@@ -47,7 +47,12 @@ include $(BUILD_SHARED_LIBRARY)
 ifeq ($(strip $(BOARD_USES_TINYHAL_AUDIO)),true)
 include $(CLEAR_VARS)
 
+ifeq ($(strip $(TINYHAL_AUDIO_MODULE_NAME)),)
 LOCAL_MODULE := audio.primary.$(TARGET_DEVICE)
+else
+LOCAL_MODULE := audio.$(strip $(TINYHAL_AUDIO_MODULE_NAME)).$(TARGET_DEVICE)
+endif
+
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE_TAGS := optional
 
