@@ -1816,13 +1816,6 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 
     *stream_in = NULL;
 
-    /* Respond with a request for mono if a different format is given. */
-    if (config->channel_mask != AUDIO_CHANNEL_IN_MONO) {
-        config->channel_mask = AUDIO_CHANNEL_IN_MONO;
-        ret = -EINVAL;
-        goto fail;
-    }
-
     /* We don't open a config manager stream here because we don't yet
      * know what input_source to use. Defer until Android sends us an
      * input_source set_parameter()
