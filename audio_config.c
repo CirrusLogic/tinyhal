@@ -85,7 +85,7 @@ enum {
 };
 
 struct ctl {
-    struct mixer_ctl    *ctl;
+    uint                id;
     const char          *name;
     uint32_t            index;
     uint32_t            array_count;
@@ -123,8 +123,8 @@ struct usecase {
 };
 
 struct stream_control {
-    struct mixer_ctl    *ctl;
     uint                id;
+    uint                index;
     uint                min;
     uint                max;
 };
@@ -286,7 +286,7 @@ struct parse_state {
 
 
 static int string_to_uint(uint32_t *result, const char *str);
-static int make_byte_array(struct ctl *c);
+static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl);
 static const char *debug_device_to_name(uint32_t device);
 
 /*********************************************************************
@@ -297,36 +297,37 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
 {
     enum mixer_ctl_type ctl_type;
     const char *val_str = pctl->value.string;
+    struct mixer_ctl *ctl;
     int ret;
 
-    if (pctl->ctl) {
+    if (pctl->id != UINT_MAX) {
         /* control already populated on boot */
         return 0;
     }
 
    /* Control wasn't found on boot, try to get it now */
 
-    pctl->ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
-    if (!pctl->ctl) {
+    ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
+    if (!ctl) {
         /* Update tinyalsa with any new controls that have been added
          * and try again
          */
         mixer_update_ctls(cm->mixer);
-        pctl->ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
+        ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
     }
 
-    if (!pctl->ctl) {
+    if (!ctl) {
         ALOGW("Control '%s' not found", pctl->name);
         return -ENOENT;
     }
 
-    ctl_type = mixer_ctl_get_type(pctl->ctl);
+    ctl_type = mixer_ctl_get_type(ctl);
     switch(ctl_type) {
         case MIXER_CTL_TYPE_BYTE:
             if (pctl->index == INVALID_CTL_INDEX) {
                 pctl->index = 0;
             }
-            ret = make_byte_array(pctl);
+            ret = make_byte_array(pctl, ctl);
             if (ret != 0) {
                 return ret;
             }
@@ -360,11 +361,13 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
             return -EINVAL;
     }
 
+    pctl->id = mixer_ctl_get_id(ctl);
     return 0;
 }
 
 static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_count)
 {
+    struct mixer_ctl *ctl;
     int i;
     unsigned int vnum;
     unsigned int value_count;
@@ -378,63 +381,65 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
             break;
         }
 
-        switch (mixer_ctl_get_type(pctl->ctl)) {
+        ctl = mixer_get_ctl(cm->mixer, pctl->id);
+
+        switch (mixer_ctl_get_type(ctl)) {
             case MIXER_CTL_TYPE_BOOL:
             case MIXER_CTL_TYPE_INT:
-                value_count = mixer_ctl_get_num_values(pctl->ctl);
+                value_count = mixer_ctl_get_num_values(ctl);
 
                 ALOGV("apply ctl '%s' = 0x%x (%d values)",
-                                        mixer_ctl_get_name(pctl->ctl),
+                                        mixer_ctl_get_name(ctl),
                                         pctl->value.uinteger,
                                         value_count);
 
                 if (pctl->index == INVALID_CTL_INDEX) {
                     for (vnum = 0; vnum < value_count; ++vnum) {
-                        err = mixer_ctl_set_value(pctl->ctl, vnum, pctl->value.uinteger);
+                        err = mixer_ctl_set_value(ctl, vnum, pctl->value.uinteger);
                         if (err < 0) {
                             break;
                         }
                     }
                 } else {
-                    err = mixer_ctl_set_value(pctl->ctl, pctl->index, pctl->value.uinteger);
+                    err = mixer_ctl_set_value(ctl, pctl->index, pctl->value.uinteger);
                 }
                 ALOGE_IF(err < 0, "Failed to set ctl '%s' to %u",
-                                        mixer_ctl_get_name(pctl->ctl),
+                                        mixer_ctl_get_name(ctl),
                                         pctl->value.uinteger);
                 break;
 
             case MIXER_CTL_TYPE_BYTE:
                 /* byte array */
-                vnum = mixer_ctl_get_num_values(pctl->ctl);
+                vnum = mixer_ctl_get_num_values(ctl);
 
                 ALOGV("apply ctl '%s' = byte data (%d bytes)",
-                                        mixer_ctl_get_name(pctl->ctl),
+                                        mixer_ctl_get_name(ctl),
                                         vnum);
 
                 if ((pctl->index == 0) && (pctl->array_count == vnum)) {
-                    err = mixer_ctl_set_array(pctl->ctl, pctl->value.data, pctl->array_count);
+                    err = mixer_ctl_set_array(ctl, pctl->value.data, pctl->array_count);
                 } else {
                     /* read-modify-write */
-                    err = mixer_ctl_get_array(pctl->ctl, ctl_data, vnum);
+                    err = mixer_ctl_get_array(ctl, ctl_data, vnum);
                     if (err >= 0) {
                         memcpy(&ctl_data[pctl->index], pctl->value.data, pctl->array_count);
-                        err = mixer_ctl_set_array(pctl->ctl, ctl_data, vnum);
+                        err = mixer_ctl_set_array(ctl, ctl_data, vnum);
                     }
                 }
 
                 ALOGE_IF(err < 0, "Failed to set ctl '%s'",
-                                            mixer_ctl_get_name(pctl->ctl));
+                                            mixer_ctl_get_name(ctl));
                 break;
 
             case MIXER_CTL_TYPE_ENUM:
                 ALOGV("apply ctl '%s' to '%s'",
-                                            mixer_ctl_get_name(pctl->ctl),
+                                            mixer_ctl_get_name(ctl),
                                             pctl->value.string);
 
-                err = mixer_ctl_set_enum_by_string(pctl->ctl, pctl->value.string);
+                err = mixer_ctl_set_enum_by_string(ctl, pctl->value.string);
 
                 ALOGE_IF(err < 0, "Failed to set ctl '%s' to '%s'",
-                                            mixer_ctl_get_name(pctl->ctl),
+                                            mixer_ctl_get_name(ctl),
                                             pctl->value.string);
                 break;
 
@@ -625,8 +630,10 @@ void rotate_routes( struct config_mgr *cm, int orientation )
  * Stream control
  *********************************************************************/
 
-static int set_vol_ctl( const struct stream_control *volctl, uint percent)
+static int set_vol_ctl(struct stream *stream,
+                       const struct stream_control *volctl, uint percent)
 {
+    struct mixer_ctl *ctl = mixer_get_ctl(stream->cm->mixer, volctl->id);
     uint val;
     uint range;
 
@@ -645,8 +652,7 @@ static int set_vol_ctl( const struct stream_control *volctl, uint percent)
         break;
     }
 
-    ALOGW("set '%s' = %u", mixer_ctl_get_name(volctl->ctl), val);
-    mixer_ctl_set_value(volctl->ctl, volctl->id, val);
+    mixer_ctl_set_value(ctl, volctl->index, val);
     return 0;
 }
 
@@ -655,17 +661,17 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
     struct stream *s = (struct stream *)stream;
     int ret = -ENOSYS;
 
-    if (s->controls.volume_left.ctl) {
-        if (!s->controls.volume_right.ctl) {
+    if (s->controls.volume_left.id != UINT_MAX) {
+        if (s->controls.volume_right.id == UINT_MAX) {
             /* Control is mono so average left and right */
             left_pc = (left_pc + right_pc) / 2;
         }
 
-        ret = set_vol_ctl(&s->controls.volume_left, left_pc);
+        ret = set_vol_ctl(s, &s->controls.volume_left, left_pc);
     }
 
-    if (s->controls.volume_right.ctl) {
-        ret = set_vol_ctl(&s->controls.volume_right, right_pc);
+    if (s->controls.volume_right.id != UINT_MAX) {
+        ret = set_vol_ctl(s, &s->controls.volume_right, right_pc);
     }
 
     ALOGV_IF(ret == 0, "set_hw_volume: L=%d%% R=%d%%", left_pc, right_pc);
@@ -1103,6 +1109,7 @@ static struct ctl* new_ctl(struct dyn_array *array, const char *name)
     }
 
     c = &array->ctls[array->count - 1];
+    c->id = UINT_MAX;
     c->index = INVALID_CTL_INDEX;
     c->name = name;
     return c;
@@ -1201,6 +1208,8 @@ static struct stream* new_stream(struct dyn_array *array, struct config_mgr *cm)
     s->cm = cm;
     s->enable_path = -1;    /* by default no special path to invoke */
     s->disable_path = -1;
+    s->controls.volume_left.id = UINT_MAX;
+    s->controls.volume_right.id = UINT_MAX;
     return s;
 }
 
@@ -1318,10 +1327,10 @@ static int attrib_to_uint(uint32_t *result, struct parse_state *state,
     return string_to_uint(result, str);
 }
 
-static int make_byte_array(struct ctl *c)
+static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
 {
     const char *val_str = c->value.string;
-    const unsigned int vnum = mixer_ctl_get_num_values(c->ctl);
+    const unsigned int vnum = mixer_ctl_get_num_values(ctl);
     char *str;
     uint8_t *pdatablock = NULL;
     uint8_t *bytes;
@@ -1650,11 +1659,11 @@ static int parse_stream_ctl_start(struct parse_state *state)
     }
 
     if (0 == strcmp(function, "leftvol")) {
-        ALOGE_IF(state->current.stream->controls.volume_left.ctl,
+        ALOGE_IF(state->current.stream->controls.volume_left.id != UINT_MAX,
                                 "Left volume control specified again");
         streamctl = &(state->current.stream->controls.volume_left);
     } else if (0 == strcmp(function, "rightvol")) {
-        ALOGE_IF(state->current.stream->controls.volume_right.ctl,
+        ALOGE_IF(state->current.stream->controls.volume_right.id != UINT_MAX,
                                 "Right volume control specified again");
         streamctl = &(state->current.stream->controls.volume_right);
     } else {
@@ -1662,11 +1671,11 @@ static int parse_stream_ctl_start(struct parse_state *state)
         return -EINVAL;
     }
 
-    streamctl->ctl = ctl;
-    streamctl->id = idx_val;
+    streamctl->index = idx_val;
 
     switch (attrib_to_uint(&v, state, e_attrib_min)) {
     case -EINVAL:
+        ALOGE("Invalid min for '%s'", name);
         return -EINVAL;
 
     case -ENOENT:
@@ -1686,6 +1695,7 @@ static int parse_stream_ctl_start(struct parse_state *state)
 
     switch (attrib_to_uint(&v, state, e_attrib_max)) {
     case -EINVAL:
+        ALOGE("Invalid max for '%s'", name);
         return -EINVAL;
 
     case -ENOENT:
@@ -1703,8 +1713,11 @@ static int parse_stream_ctl_start(struct parse_state *state)
         break;
     }
 
-    ALOGV("Added control '%s' function '%s' range %u-%u", name, function,
-                streamctl->min, streamctl->max);
+    streamctl->id = mixer_ctl_get_id(ctl);
+
+    ALOGV("(%p) Added control '%s' id %u function '%s' range %u-%u",
+                state->current.stream,
+                name, streamctl->id, function, streamctl->min, streamctl->max);
 
     return 0;
 }
