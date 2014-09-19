@@ -350,7 +350,7 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
             break;
 
         case MIXER_CTL_TYPE_ENUM:
-            ALOGV("Added ctl '%s' value '%s'", pctl->name, c->value.string);
+            ALOGV("Added ctl '%s' value '%s'", pctl->name, pctl->value.string);
             break;
 
         case MIXER_CTL_TYPE_IEC958:
