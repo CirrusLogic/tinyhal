@@ -104,6 +104,8 @@ struct audio_device {
     enum voice_state voice_st;
     audio_devices_t voice_trig_mic;
 
+    const struct hw_stream* global_stream;
+
     union {
         /* config stream for trigger-only operation */
         const struct hw_stream* voice_trig_stream;
@@ -240,7 +242,7 @@ static const char *voice_trigger_audio_stream_name(struct audio_device *adev);
  * Stream common functions
  *********************************************************************/
 
-static int common_set_parameters_locked(const struct hw_stream *stream, const char *kvpairs)
+static int stream_invoke_usecases(const struct hw_stream *stream, const char *kvpairs)
 {
     char *parms = strdup(kvpairs);
     char *p, *temp;
@@ -248,7 +250,7 @@ static int common_set_parameters_locked(const struct hw_stream *stream, const ch
     char value[32];
     int ret;
 
-    ALOGV("+common_set_parameters(%p) '%s'", stream, kvpairs);
+    ALOGV("+stream_invoke_usecases(%p) '%s'", stream, kvpairs);
 
     if (!parms) {
         return -ENOMEM;
@@ -377,7 +379,7 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
     }
 
 
-    if (common_set_parameters_locked(out->hw, kvpairs) >= 0) {
+    if (stream_invoke_usecases(out->hw, kvpairs) >= 0) {
         ret = 0;
     }
 
@@ -1691,7 +1693,7 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
         ret = 0;
     }
 
-    common_set_parameters_locked(in->common.hw, kvpairs);
+    stream_invoke_usecases(in->common.hw, kvpairs);
 
 out:
     pthread_mutex_unlock(&in->common.lock);
@@ -2172,8 +2174,11 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
 
     voice_trigger_set_params(adev, parms);
 
+    if (adev->global_stream != NULL)
+        stream_invoke_usecases(adev->global_stream, kvpairs);
+
     str_parms_destroy(parms);
-    return ret;
+    return 0;
 }
 
 static char * adev_get_parameters(const struct audio_hw_device *dev,
@@ -2288,6 +2293,7 @@ static int adev_open(const hw_module_t* module, const char* name,
         goto fail;
     }
 
+    adev->global_stream = get_named_stream(adev->cm, "global");
     voice_trigger_init(adev);
 
     adev->orientation = ORIENTATION_UNDEFINED;
