@@ -167,7 +167,11 @@ entry so the effect is
 	</device>
 
 <!-- Following the device definitions there must be a <stream> entry
-for every output and input stream supported by the hardware.
+for every output and input stream supported by the hardware. It is also
+possible to define a 'global' stream that is not associated with any particular
+audio input or output but instead can be used to handle actions that are
+global to the audio hardware.
+
 There are two types of stream that can be declared here:
 - anonymous streams, these will be used to supply playback and record
     streams for AudioFlinger
@@ -177,6 +181,8 @@ There are two types of stream that can be declared here:
     path - typically where the audio is routed entirely in hardware without
     being passed through Android, for example the baseband audio link or
     FM radio.
+    The global stream is a special case of a named stream and must have the
+    name "global"
 
 For standard anonymous streams there are two that would normally be on
 any device: PCM input and PCM output. It is also possible to declare a stream
@@ -186,6 +192,12 @@ must be decompressed in software.
 
 Named streams can be declared as type "hw", to represent a hardware-hardware
 link.
+
+The "global" named stream can be used to handle events that are not specific
+to any particular stream. Typically this is used to implement usecase handlers
+(see below) to handle set_parameter messages sent to the HAL's global
+(struct audio_device*)->hw_device.set_parameters function (for example, the
+"orientation" parameter that is sent by Android.)
 
 Mandatory attributes for PCM and compressed streams:
     type    must be "pcm" or "compress"
@@ -201,6 +213,10 @@ Mandatory for hw streams:
     type    must be "hw"
     dir     direction of stream, either "in" (recording) or "out" (playback)
     name    a custom name for the stream (hw streams must be named streams)
+
+Mandatory for the global stream:
+    type    must be "hw"
+    name    must be "global"
 
 Optional attributes:
     card    ALSA card number. If not given this defaults to 0
