@@ -621,11 +621,6 @@ uint32_t get_routed_devices( const struct hw_stream *stream )
     return s->current_devices;
 }
 
-void rotate_routes( struct config_mgr *cm, int orientation )
-{
-    /* Route rotation not currently supported */
-}
-
 /*********************************************************************
  * Stream control
  *********************************************************************/

@@ -132,9 +132,6 @@ void apply_route( const struct hw_stream *stream, uint32_t devices );
 /** Get bitmask of devices currently connected to this stream */
 uint32_t get_routed_devices( const struct hw_stream *stream );
 
-/** Adjust routing for all streams that alter with orentiation */
-void rotate_routes( struct config_mgr *cm, int orientation );
-
 /** Apply hardware volume */
 int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc);
 
