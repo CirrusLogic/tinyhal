@@ -923,7 +923,7 @@ static const struct parse_element elem_table[e_elem_count] = {
                             | BIT(e_attrib_device) | BIT(e_attrib_instances)
                             | BIT(e_attrib_rate) | BIT(e_attrib_period_size)
                             | BIT(e_attrib_period_count),
-        .required_attribs = BIT(e_attrib_type) | BIT(e_attrib_dir),
+        .required_attribs = BIT(e_attrib_type),
         .valid_subelem = BIT(e_elem_stream_ctl)
                             | BIT(e_elem_enable) | BIT(e_elem_disable)
                             | BIT(e_elem_usecase),
@@ -1728,6 +1728,7 @@ static int parse_stream_start(struct parse_state *state)
     const char *dir = state->attribs.value[e_attrib_dir];
     const char *name = state->attribs.value[e_attrib_name];
     bool out;
+    bool global;
     uint32_t card;
     uint32_t device;
     uint32_t maxref = INT_MAX;
@@ -1752,7 +1753,18 @@ static int parse_stream_start(struct parse_state *state)
         return -ENOMEM;
     }
 
-    if (0 == strcmp(dir, "out")) {
+    if (!name) {
+        global = false;
+    } else {
+        global = (strcmp(name, "global") == 0);
+    }
+
+    if (dir == NULL) {
+        if (!global) {
+            ALOGE("'dir' is required");
+            return -EINVAL;
+        }
+    } else if (0 == strcmp(dir, "out")) {
         out = true;
     } else if (0 == strcmp(dir, "in")) {
         out = false;
@@ -1761,7 +1773,9 @@ static int parse_stream_start(struct parse_state *state)
         return -EINVAL;
     }
 
-    if (0 == strcmp(type, "hw")) {
+    if (global) {
+        s->info.type = e_stream_global;
+    } else if (0 == strcmp(type, "hw")) {
         if (name == NULL) {
             ALOGE("Anonymous stream cannot be type hw");
             return -EINVAL;

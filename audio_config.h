@@ -32,6 +32,7 @@ enum stream_type {
     e_stream_in_compress,
     e_stream_out_hw,
     e_stream_in_hw,
+    e_stream_global
 };
 
 /** Information about a stream */
