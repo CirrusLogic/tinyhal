@@ -97,7 +97,6 @@ struct audio_device {
     pthread_mutex_t lock;
     bool mic_mute;
     struct config_mgr *cm;
-    int orientation;
 
     struct stream_in_pcm *active_voice_control;
 
@@ -223,13 +222,6 @@ struct stream_in_pcm {
 #ifdef COMPRESS_PCM_USE_UNSHORTEN
     struct in_unshorten unshorten;
 #endif
-};
-
-enum {
-    ORIENTATION_LANDSCAPE,
-    ORIENTATION_PORTRAIT,
-    ORIENTATION_SQUARE,
-    ORIENTATION_UNDEFINED,
 };
 
 static uint32_t out_get_sample_rate(const struct audio_stream *stream);
@@ -2142,42 +2134,18 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     struct str_parms *parms;
     char *str;
     char value[32];
-    int ret;
 
     ALOGW("adev_set_parameters '%s'", kvpairs);
 
     parms = str_parms_create_str(kvpairs);
-
-    pthread_mutex_lock(&adev->lock);
-
-    ret = str_parms_get_str(parms, "orientation", value, sizeof(value));
-    if (ret >= 0) {
-        int orientation;
-
-        if (strcmp(value, "landscape") == 0)
-            orientation = ORIENTATION_LANDSCAPE;
-        else if (strcmp(value, "portrait") == 0)
-            orientation = ORIENTATION_PORTRAIT;
-        else if (strcmp(value, "square") == 0)
-            orientation = ORIENTATION_SQUARE;
-        else
-            orientation = ORIENTATION_UNDEFINED;
-
-        if (orientation != adev->orientation) {
-            adev->orientation = orientation;
-            /* Change routing for any streams that change with orientation */
-            rotate_routes(adev->cm, orientation);
-        }
+    if (parms) {
+        voice_trigger_set_params(adev, parms);
+        str_parms_destroy(parms);
     }
-
-    pthread_mutex_unlock(&adev->lock);
-
-    voice_trigger_set_params(adev, parms);
 
     if (adev->global_stream != NULL)
         stream_invoke_usecases(adev->global_stream, kvpairs);
 
-    str_parms_destroy(parms);
     return 0;
 }
 
@@ -2295,8 +2263,6 @@ static int adev_open(const hw_module_t* module, const char* name,
 
     adev->global_stream = get_named_stream(adev->cm, "global");
     voice_trigger_init(adev);
-
-    adev->orientation = ORIENTATION_UNDEFINED;
 
     *device = &adev->hw_device.common;
     return 0;
