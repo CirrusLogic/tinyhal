@@ -1,4 +1,5 @@
 #
+# Copyright (C) 2014 Cirrus Logic, Inc.
 # Copyright (C) 2012 Wolfson Microelectronics plc
 # Copyright (C) 2011 The Android Open Source Project
 #
@@ -18,32 +19,6 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := libaudiohalcm
-LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)
-LOCAL_MODULE_TAGS := optional
-
-LOCAL_CFLAGS += -Werror
-
-LOCAL_C_INCLUDES += \
-	external/tinycompress/include \
-	external/tinyalsa/include \
-	external/tinyhal/audio \
-	external/expat/lib \
-	$(call include-path-for, audio-utils)
-
-LOCAL_SRC_FILES := \
-	audio_config.c
-
-LOCAL_SHARED_LIBRARIES := \
-	libcutils \
-	libutils \
-	libdl	\
-	liblog	\
-	libexpat	\
-	libtinyalsa	\
-
-include $(BUILD_SHARED_LIBRARY)
-
 ifeq ($(strip $(BOARD_USES_TINYHAL_AUDIO)),true)
 include $(CLEAR_VARS)
 
@@ -61,7 +36,7 @@ LOCAL_CFLAGS += -Werror
 LOCAL_C_INCLUDES += \
 	external/tinycompress/include \
 	external/tinyalsa/include \
-	external/tinyhal/audio \
+	external/tinyhal/include \
 	external/expat/lib \
 	$(call include-path-for, audio-utils)
 

@@ -45,7 +45,7 @@
 
 #include <audio_utils/resampler.h>
 
-#include "audio_config.h"
+#include <tinyhal/audio_config.h>
 
 #include <math.h>
 
