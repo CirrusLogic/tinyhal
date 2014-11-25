@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2012-13 Wolfson Microelectronics plc
+ * Copyright (C) 2014 Cirrus Logic, Inc.
+ * Copyright (C) 2012-14 Wolfson Microelectronics plc
  *
  * This code is heavily based on AOSP HAL for the asus/grouper
  *
@@ -49,6 +50,14 @@
 
 #include <math.h>
 
+/* Kit Kit doesn't change the HAL API version despite the API changing to
+ * add compress support. Use an alternative way of ensuring we can still
+ * build against Jellybean without the compress playback support
+ */
+#ifdef AUDIO_OFFLOAD_CODEC_PARAMS
+#define TINYHAL_COMPRESS_PLAYBACK
+#endif
+
 #ifdef COMPRESS_PCM_USE_UNSHORTEN
 #include <libunshorten/unshorten.h>
 #endif
@@ -73,6 +82,33 @@
 
 /* Maximum time we'll wait for data from a compress_pcm input */
 #define MAX_COMPRESS_PCM_TIMEOUT_MS     2100
+
+/* How long compress_write() will wait for driver to signal a poll()
+ * before giving up. Set to -1 to make it wait indefinitely
+ */
+#define MAX_COMPRESS_POLL_WAIT_MS   -1
+
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+enum async_mode {
+    ASYNC_NONE,
+    ASYNC_POLL,
+    ASYNC_EARLY_DRAIN,
+    ASYNC_FULL_DRAIN
+};
+
+typedef void* (*async_common_fn_t)( void* arg );
+
+typedef struct {
+    bool                    exit;
+    pthread_cond_t          cv;
+    const struct audio_stream_out* stream;
+    stream_callback_t       callback;
+    void*                   callback_param;
+    pthread_mutex_t         mutex;
+    pthread_t               thread;
+    enum async_mode         mode;
+} async_common_t;
+#endif /* TINYHAL_COMPRESS_PLAYBACK */
 
 /* Voice trigger and voice recognition stream names */
 const char kVoiceTriggerStreamName[] = "voice trigger";
@@ -115,13 +151,13 @@ struct audio_device {
 };
 
 
-typedef void(*close_fn)(struct audio_stream *);
+typedef void(*out_close_fn)(struct audio_stream_out *);
 
 /* Fields common to all types of output stream */
 struct stream_out_common {
     struct audio_stream_out stream;
 
-    close_fn    close;
+    out_close_fn    close;
     struct audio_device *dev;
     const struct hw_stream* hw;
 
@@ -142,6 +178,11 @@ struct stream_out_common {
     uint32_t buffer_size;
 
     uint32_t latency;
+
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+    bool use_async;
+    async_common_t async_common;
+#endif
 };
 
 struct stream_out_pcm {
@@ -152,6 +193,27 @@ struct stream_out_pcm {
     uint32_t hw_sample_rate;    /* actual sample rate of hardware */
     int hw_channel_count;  /* actual number of output channels */
 };
+
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+struct stream_out_compress {
+    struct stream_out_common common;
+
+    struct compress *compress;
+
+    struct snd_codec codec;
+
+    struct {
+        const uint8_t *data;
+        int len;
+    } write;
+
+    bool started;
+    volatile bool paused; /* prevents standby while in pause */
+
+    struct compr_gapless_mdata g_data;
+    bool refresh_gapless_meta;
+};
+#endif /* TINYHAL_COMPRESS_PLAYBACK */
 
 struct in_resampler {
     struct resampler_itfe *resampler;
@@ -175,11 +237,13 @@ struct in_unshorten {
 };
 #endif
 
+typedef void(*in_close_fn)(struct audio_stream *);
+
 /* Fields common to all types of input stream */
 struct stream_in_common {
     struct audio_stream_in stream;
 
-    close_fn    close;
+    in_close_fn    close;
     struct audio_device *dev;
     const struct hw_stream* hw;
 
@@ -438,9 +502,77 @@ static int out_get_next_write_timestamp(const struct audio_stream_out *stream,
     return -EINVAL;
 }
 
-static void do_close_out_common(struct audio_stream *stream)
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+static int out_set_callback(struct audio_stream_out *stream,
+                                    stream_callback_t callback, void *cookie,
+                                    async_common_fn_t fn)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
+    async_common_t *async = &out->async_common;
+
+    async->exit = false;
+    async->callback = NULL;
+
+    int rv = pthread_cond_init(&(async->cv), NULL );
+    if (rv != 0) {
+        ALOGE("failed to create async condvar");
+        return rv;
+    }
+
+    rv = pthread_mutex_init(&(async->mutex), NULL);
+    if(rv != 0) {
+        ALOGE("failed to create async mutex");
+        pthread_cond_destroy(&(async->cv));
+        return rv;
+    }
+
+    rv = pthread_create(&(async->thread), NULL, fn, async);
+    if (rv != 0) {
+        ALOGE("failed to create async thread");
+        pthread_mutex_destroy(&(async->mutex));
+        pthread_cond_destroy(&(async->cv));
+        return rv;
+    }
+
+    async->stream = stream;
+    async->callback = callback;
+    async->callback_param = cookie;
+    out->use_async = true;
+    return 0;
+}
+
+static int signal_async_thread(async_common_t *async, enum async_mode mode)
+{
+    int ret = 0;
+
+    pthread_mutex_lock(&(async->mutex));
+    if (async->mode != ASYNC_NONE) {
+        ret = -EBUSY;
+    } else {
+        async->mode = mode;
+        pthread_cond_signal(&(async->cv));
+    }
+    pthread_mutex_unlock(&(async->mutex));
+    return ret;
+}
+#endif /* TINYHAL_COMPRESS_PLAYBACK */
+
+static void do_close_out_common(struct audio_stream_out *stream)
+{
+    struct stream_out_common *out = (struct stream_out_common *)stream;
+
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+    /* Signal the async thread to stop and exit */
+    if (out->use_async) {
+        pthread_mutex_lock(&(out->async_common.mutex));
+        out->async_common.exit = true;
+        pthread_cond_signal(&(out->async_common.cv));
+        pthread_mutex_unlock(&(out->async_common.mutex));
+        // Wait for thread to exit
+        pthread_join(out->async_common.thread, NULL);
+    }
+#endif /* TINYHAL_COMPRESS_PLAYBACK */
+
     release_stream(out->hw);
     free(stream);
 }
@@ -642,9 +774,10 @@ static int out_pcm_get_render_position(const struct audio_stream_out *stream,
 {
     return -EINVAL;
 }
-static void do_close_out_pcm(struct audio_stream *stream)
+
+static void do_close_out_pcm(struct audio_stream_out *stream)
 {
-    out_pcm_standby(stream);
+    out_pcm_standby(&stream->common);
     do_close_out_common(stream);
 }
 
@@ -660,6 +793,427 @@ static int do_init_out_pcm( struct stream_out_pcm *out,
 
     return 0;
 }
+
+/********************************************************************
+ * Compressed output stream
+ ********************************************************************/
+
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+static int do_standby_compress_l(struct stream_out_compress *out)
+{
+    int ret;
+
+    if (out->compress && !out->paused) {
+        ALOGV("out_compress_standby(%p) not paused -closing compress\n", out);
+        if (out->started) {
+            compress_stop(out->compress);
+            out->started = false;
+        }
+        compress_close(out->compress);
+        out->compress = NULL;
+    }
+
+    return 0;
+}
+
+static int out_compress_standby(struct audio_stream *stream)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    int ret;
+
+    pthread_mutex_lock(&out->common.lock);
+    ret = do_standby_compress_l(out);
+    pthread_mutex_unlock(&out->common.lock);
+    return ret;
+}
+
+static int open_output_compress(struct stream_out_compress *out)
+{
+    struct compr_config config;
+    struct compress *cmpr;
+    int ret = 0;
+
+    pthread_mutex_lock(&out->common.lock);
+
+    if (!out->compress) {
+        config.fragment_size = 0;   /* don't care */
+        config.fragments = 0;
+        config.codec = &out->codec;
+
+        /* tinycompress in & out defines are the reverse of tinyalsa
+           For tinycompress COMPRESS_IN=output, COMPRESS_OUT=input */
+        cmpr = compress_open(out->common.hw->card_number,
+                                      out->common.hw->device_number,
+                                      COMPRESS_IN,
+                                      &config);
+        if (!is_compress_ready(cmpr)) {
+            ALOGE("Failed to open output compress: %s",
+                                        compress_get_error(cmpr));
+            compress_close(cmpr);
+            ret = -EBUSY;
+            goto exit;
+        }
+        compress_set_max_poll_wait(cmpr, MAX_COMPRESS_POLL_WAIT_MS);
+        compress_nonblock(cmpr, out->common.use_async);
+        out->common.buffer_size = config.fragment_size * config.fragments;
+        ALOGV("compressed buffer size=%u", out->common.buffer_size);
+        out->compress = cmpr;
+    }
+
+exit:
+    pthread_mutex_unlock(&out->common.lock);
+
+    return ret;
+}
+
+static int start_output_compress(struct stream_out_compress *out)
+{
+    int ret;
+
+    pthread_mutex_lock(&out->common.lock);
+
+    ret = compress_start(out->compress);
+
+    if (ret < 0) {
+        do_standby_compress_l(out);
+    } else {
+        out->started = true;
+        if(out->refresh_gapless_meta){
+            compress_set_gapless_metadata(out->compress,&out->g_data);
+            out->refresh_gapless_meta = false;
+            out->g_data.encoder_delay = 0;
+            out->g_data.encoder_padding = 0;
+        }
+    }
+
+    pthread_mutex_unlock(&out->common.lock);
+    return ret;
+}
+
+static ssize_t out_compress_write(struct audio_stream_out *stream,
+                            const void* buffer, size_t bytes)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    int ret = 0;
+
+    ALOGV("out_compress_write(%p) %u", stream, bytes);
+
+    ret = open_output_compress(out);
+
+    if (ret < 0) {
+        ALOGE("out_compress_write(%p): failed to open: %d", stream, ret );
+        return ret;
+    }
+
+    ret = compress_write(out->compress, buffer, bytes);
+
+    if (ret >= 0) {
+        if (!out->started) {
+            if (start_output_compress(out) < 0) {
+                ret = -1;
+                goto start_failed;
+            }
+        }
+
+        if (out->common.use_async) {
+            if ((unsigned)ret < bytes) {
+                /* not all bytes written */
+                signal_async_thread(&out->common.async_common, ASYNC_POLL);
+            }
+        }
+    }
+start_failed:
+    ALOGE_IF(ret < 0,"out_compress_write(%p) failed: %d\n", stream, ret);
+    return ret;
+}
+
+static int out_compress_pause(struct audio_stream_out *stream)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    int ret = -EBADFD;
+
+    ALOGV("out_compress_pause(%p)", stream);
+
+    /* Avoid race condition with standby */
+    pthread_mutex_lock(&out->common.lock);
+
+    if (!out->paused && out->compress) {
+        out->paused = true;
+        ret = compress_pause(out->compress);
+    }
+    pthread_mutex_unlock(&out->common.lock);
+    return ret;
+}
+
+static int out_compress_resume(struct audio_stream_out *stream)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    int ret = -EBADFD;
+
+    ALOGV("out_compress_resume(%p)", stream);
+
+    /* Avoid race condition with standby */
+    pthread_mutex_lock(&out->common.lock);
+    if (out->paused && out->compress) {
+        out->paused = false;
+        ret = compress_resume(out->compress);
+    }
+    pthread_mutex_unlock(&out->common.lock);
+    return ret;
+}
+
+static int out_compress_drain(struct audio_stream_out *stream,
+                                    audio_drain_type_t type)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    int ret = 0;
+
+    ALOGV("out_compress_drain(%p)", stream);
+
+    if (out->common.use_async) {
+        ret = signal_async_thread(&out->common.async_common,
+                (type == AUDIO_DRAIN_EARLY_NOTIFY)
+                    ? ASYNC_EARLY_DRAIN
+                    : ASYNC_FULL_DRAIN);
+    } else {
+        if(type == AUDIO_DRAIN_EARLY_NOTIFY){
+            ret = compress_next_track(out->compress);
+            if(ret != 0)
+                return ret;
+            ret = compress_partial_drain(out->compress);
+        }
+        else
+            ret = compress_drain(out->compress);
+
+        out->started = false;
+    }
+
+    return ret;
+}
+
+static int out_compress_flush(struct audio_stream_out *stream)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+
+    ALOGV("out_compress_flush(%p)", stream);
+
+    pthread_mutex_lock(&out->common.lock);
+    if (out->compress && out->started) {
+        compress_stop(out->compress);
+        out->paused = false;
+        out->started = false;
+    }
+    pthread_mutex_unlock(&out->common.lock);
+    return 0;
+}
+
+static int out_compress_get_render_position(const struct audio_stream_out *stream,
+                                   uint32_t *dsp_frames)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    unsigned int samples;
+    unsigned int sampling_rate;
+
+    if (dsp_frames) {
+        *dsp_frames = 0;
+
+        if (!out->started) {
+            ALOGV("out_compress_get_render_position(%p) not started", stream);
+            return 0;
+        }
+
+        pthread_mutex_lock(&out->common.lock);
+
+        if (out->started) {
+            if (compress_get_tstamp(out->compress, &samples, &sampling_rate) == 0) {
+                *dsp_frames = samples;
+                ALOGV("compress(%p) render position=%u", stream, *dsp_frames);
+            }
+        }
+
+        pthread_mutex_unlock(&out->common.lock);
+    }
+
+    return 0;
+}
+
+static void* out_compress_async_fn(void *arg)
+{
+    async_common_t* const pW = (async_common_t*)arg;
+    struct stream_out_compress *out = (struct stream_out_compress *)pW->stream;
+    enum async_mode mode;
+
+    while(!pW->exit) {
+        pthread_mutex_lock(&(pW->mutex));
+        ALOGV( "async fn wait for work");
+        pthread_cond_wait(&(pW->cv), &(pW->mutex));
+
+        if(pW->exit) {
+            break;
+        }
+
+        mode = pW->mode;
+        pW->mode = ASYNC_NONE;
+        pthread_mutex_unlock(&(pW->mutex));
+
+        switch(mode){
+            case ASYNC_POLL:
+                ALOGV("ASYNC_POLL");
+
+                compress_wait(out->compress, MAX_COMPRESS_POLL_WAIT_MS);
+
+                pW->callback( STREAM_CBK_EVENT_WRITE_READY,
+                                NULL,
+                                pW->callback_param );
+                break;
+
+            case ASYNC_EARLY_DRAIN:
+            case ASYNC_FULL_DRAIN:
+                ALOGV("ASYNC_%s_DRAIN",
+                            (mode == ASYNC_EARLY_DRAIN) ? "EARLY" : "FULL");
+
+                if(mode == ASYNC_EARLY_DRAIN){
+                    compress_next_track(out->compress);
+                    compress_partial_drain(out->compress);
+                }
+                else
+                    compress_drain(out->compress);
+
+                out->started = false;
+
+                pW->callback( STREAM_CBK_EVENT_DRAIN_READY,
+                                NULL,
+                                pW->callback_param );
+                break;
+
+            default:
+                break;
+        }
+
+    }
+
+    return NULL;
+}
+
+static int out_compress_set_callback(struct audio_stream_out *stream,
+                                    stream_callback_t callback, void *cookie)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    int ret = out_set_callback(stream, callback, cookie, out_compress_async_fn);
+    return ret;
+}
+
+static void out_compress_close(struct audio_stream_out *stream)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+
+    ALOGV("out_compress_close(%p)", stream);
+
+    out->paused = false;
+    out_compress_standby(&stream->common);
+
+    do_close_out_common(stream);
+}
+
+static int out_compress_set_parameters(struct audio_stream *stream, const char *kv_pairs)
+{
+    struct stream_out_compress *out = (struct stream_out_compress *)stream;
+    struct str_parms *parms;
+    char value[32];
+    int ret;
+    bool need_refresh_gapless = false;
+
+    ALOGV("+out_compress_set_parameters(%p) '%s' ", stream, kv_pairs);
+    parms = str_parms_create_str(kv_pairs);
+    ret = str_parms_get_str(parms, AUDIO_OFFLOAD_CODEC_DELAY_SAMPLES,
+                            value, sizeof(value));
+    if(ret >= 0){
+        out->g_data.encoder_delay= atoi(value);
+        need_refresh_gapless = true;
+    }
+
+    ret = str_parms_get_str(parms, AUDIO_OFFLOAD_CODEC_PADDING_SAMPLES,
+                            value, sizeof(value));
+    if(ret >= 0){
+        out->g_data.encoder_padding= atoi(value);
+        need_refresh_gapless = true;
+    }
+
+    if(need_refresh_gapless)
+        out->refresh_gapless_meta = true;
+
+    str_parms_destroy(parms);
+
+    ret = out_set_parameters(&out->common.stream.common, kv_pairs);
+
+    ALOGV("-out_compress_set_parameters(%p)", out);
+    return ret;
+}
+
+static int do_init_out_compress(struct stream_out_compress *out,
+                                    const struct audio_config *config)
+{
+    int ret;
+
+    out->common.close = out_compress_close;
+    out->common.stream.common.standby = out_compress_standby;
+    out->common.stream.write = out_compress_write;
+    out->common.stream.pause = out_compress_pause;
+    out->common.stream.resume = out_compress_resume;
+    out->common.stream.drain = out_compress_drain;
+    out->common.stream.flush = out_compress_flush;
+    out->common.stream.get_render_position = out_compress_get_render_position;
+    out->common.stream.set_callback = out_compress_set_callback;
+    out->common.stream.common.set_parameters = out_compress_set_parameters;
+
+    /* struct is pre-initialized to 0x00 */
+    /*out->common.latency.screen_off = 0;
+    out->common.latency.screen_on = 0;
+
+    out->codec.ch_in = 0;
+    out->codec.bit_rate = 0;
+    out->codec.profile = 0;
+    out->codec.level = 0;
+    out->codec.ch_mode = 0;
+    out->codec.format = 0;*/
+    out->codec.align = 1;
+    out->codec.rate_control = SND_RATECONTROLMODE_CONSTANTBITRATE
+                                | SND_RATECONTROLMODE_VARIABLEBITRATE;
+
+    out->codec.sample_rate = config->sample_rate;
+
+    switch (config->format & AUDIO_FORMAT_MAIN_MASK) {
+        case AUDIO_FORMAT_MP3:
+            out->codec.id = SND_AUDIOCODEC_MP3;
+            break;
+        case AUDIO_FORMAT_AAC:
+            out->codec.id = SND_AUDIOCODEC_AAC;
+            break;
+        case AUDIO_FORMAT_HE_AAC_V1:
+            out->codec.id = SND_AUDIOCODEC_AAC;
+            out->codec.level = SND_AUDIOMODE_AAC_HE;
+            break;
+        case AUDIO_FORMAT_HE_AAC_V2:
+            out->codec.id = SND_AUDIOCODEC_AAC;
+            out->codec.level = SND_AUDIOMODE_AAC_HE;
+            break;
+        case AUDIO_FORMAT_VORBIS:
+            out->codec.id = SND_AUDIOCODEC_VORBIS;
+            break;
+        default:
+            return -EINVAL;
+    }
+
+    out->codec.ch_out = popcount(config->channel_mask);
+
+    /* Open compress dev to check that it exists and
+     * get the buffer size. If it isn't required soon
+     * AudioFlinger will call standby
+     */
+    ret = open_output_compress(out);
+    return ret;
+}
+#endif /* TINYHAL_COMPRESS_PLAYBACK */
 
 /*********************************************************************
  * Input stream common functions
@@ -1739,6 +2293,9 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     union {
         struct stream_out_common *common;
         struct stream_out_pcm *pcm;
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+        struct stream_out_compress *compress;
+#endif
     } out;
     int ret;
 
@@ -1753,7 +2310,14 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         goto err_fail;
     }
 
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+    out.common = calloc(1, hw->type == e_stream_out_pcm
+                                ? sizeof(struct stream_out_pcm)
+                                : sizeof(struct stream_out_compress));
+#else
     out.common = calloc(1, sizeof(struct stream_out_pcm));
+#endif
+
     if (!out.common) {
         ret = -ENOMEM;
         goto err_fail;
@@ -1766,7 +2330,16 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         goto err_open;
     }
 
+#ifdef TINYHAL_COMPRESS_PLAYBACK
+    if (hw->type == e_stream_out_pcm) {
+        ret = do_init_out_pcm( out.pcm, config );
+    } else {
+        ret = do_init_out_compress( out.compress, config );
+    }
+#else
     ret = do_init_out_pcm( out.pcm, config );
+#endif
+
     if (ret < 0) {
         goto err_open;
     }
@@ -1793,7 +2366,7 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
     ALOGV("adev_close_output_stream(%p)", stream);
-    (out->close)(&stream->common);
+    (out->close)(stream);
 }
 
 static int adev_open_input_stream(struct audio_hw_device *dev,
