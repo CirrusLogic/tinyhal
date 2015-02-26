@@ -1393,7 +1393,7 @@ static int string_to_uint(uint32_t *result, const char *str)
 
     /* return error if not a valid decimal or hex number */
     v = strtoul(str, &endptr, 0);
-    if ((endptr[0] == '\0') && (endptr != str) && (v <= INT_MAX)) {
+    if ((endptr[0] == '\0') && (endptr != str) && (v <= 0xFFFFFFFF)) {
         *result = (uint32_t)v;
         return 0;
     } else {
