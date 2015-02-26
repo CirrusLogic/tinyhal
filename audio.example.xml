@@ -301,6 +301,18 @@ TinyHAL defines some specific named streams:
             </case>
         </usecase>
 
+        <!-- Constant values. These allow setting named values that can
+        be read by the audio HAL at runtime. Values are 32-bit unsigned.
+        This is useful for setting HAL-specific or hardware-specific
+        information.
+        The names have no meaning to the config manager, and are
+        entirely defined by the audio HAL.
+        If you want to set constants that are global, rather than part
+        of a stream, define a hw stream called "global".
+        to hold the values.
+        -->
+        <set name="foo" val="42"/>
+
     </stream>
 
     <stream type="pcm" dir="in" card="0" device="0">

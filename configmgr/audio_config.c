@@ -62,6 +62,7 @@ struct usecase;
 struct scase;
 struct codec_probe;
 struct codec_case;
+struct constant;
 
 /* Dynamically extended array of fixed-size objects */
 struct dyn_array {
@@ -77,6 +78,7 @@ struct dyn_array {
         struct scase       *cases;
         struct ctl         *ctls;
         struct codec_case  *codec_cases;
+        struct constant    *constants;
         const char         **path_names;
     };
 };
@@ -113,6 +115,11 @@ struct ctl {
         const uint8_t   *data;
         const char      *string;
     } value;
+};
+
+struct constant {
+    const char *name;
+    uint32_t   value;
 };
 
 struct path {
@@ -180,6 +187,7 @@ struct stream {
     } controls;
 
     struct dyn_array    usecase_array;
+    struct dyn_array    constants_array;
 };
 
 struct config_mgr {
@@ -210,6 +218,7 @@ enum element_index {
     e_elem_disable,
     e_elem_case,
     e_elem_usecase,
+    e_elem_set,
     e_elem_stream_ctl,
     e_elem_init,
     e_elem_mixer,
@@ -934,6 +943,26 @@ exit:
 }
 
 /*********************************************************************
+ * Constants
+ *********************************************************************/
+int get_stream_constant(const struct hw_stream *stream,
+                        const char *name, uint32_t *value)
+{
+    struct stream *s = (struct stream *)stream;
+    struct constant *pc = s->constants_array.constants;
+    const int count = s->constants_array.count;
+    int i;
+
+    for (i = 0; i < count; ++i) {
+        if (0 == strcmp(pc[i].name, name)) {
+            *value = pc[i].value;
+            return 0;
+        }
+    }
+    return -ENOSYS;
+}
+
+/*********************************************************************
  * Config file parsing
  *
  * To keep this simple we restrict the order that config file entries
@@ -960,6 +989,7 @@ static int parse_init_start(struct parse_state *state);
 static int parse_codec_probe_start(struct parse_state *state);
 static int parse_codec_probe_end(struct parse_state *state);
 static int parse_codec_case_start(struct parse_state *state);
+static int parse_set_start(struct parse_state *state);
 
 static const struct parse_element elem_table[e_elem_count] = {
     [e_elem_ctl] =    {
@@ -999,7 +1029,7 @@ static const struct parse_element elem_table[e_elem_count] = {
         .required_attribs = BIT(e_attrib_type),
         .valid_subelem = BIT(e_elem_stream_ctl)
                             | BIT(e_elem_enable) | BIT(e_elem_disable)
-                            | BIT(e_elem_usecase),
+                            | BIT(e_elem_usecase) | BIT(e_elem_set),
         .start_fn = parse_stream_start,
         .end_fn = parse_stream_end
         },
@@ -1038,6 +1068,14 @@ static const struct parse_element elem_table[e_elem_count] = {
         .valid_subelem = BIT(e_elem_case),
         .start_fn = parse_usecase_start,
         .end_fn = parse_usecase_end
+        },
+
+    [e_elem_set] =    {
+        .name = "set",
+        .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_val),
+        .required_attribs = BIT(e_attrib_name) | BIT(e_attrib_val),
+        .valid_subelem = 0,
+        .start_fn = parse_set_start
         },
 
     [e_elem_stream_ctl] =    {
@@ -1289,6 +1327,21 @@ static void compress_usecase(struct usecase *puc)
     dyn_array_fix(&puc->case_array);
 }
 
+static struct constant* new_constant(struct dyn_array *array,
+                                     const char *name, uint32_t val)
+{
+    struct constant *pc;
+
+    if (dyn_array_extend(array) < 0) {
+        return NULL;
+    }
+
+    pc = &array->constants[array->count - 1];
+    pc->name = name;
+    pc->value = val;
+    return pc;
+}
+
 static struct device* new_device(struct dyn_array *array, uint32_t type)
 {
     struct device *d;
@@ -1318,6 +1371,7 @@ static struct stream* new_stream(struct dyn_array *array, struct config_mgr *cm)
 
     s = &array->streams[array->count - 1];
     s->usecase_array.elem_size = sizeof(struct usecase);
+    s->constants_array.elem_size = sizeof(struct constant);
     s->cm = cm;
     s->enable_path = -1;    /* by default no special path to invoke */
     s->disable_path = -1;
@@ -1849,6 +1903,32 @@ static int parse_usecase_end(struct parse_state *state)
 {
     /* Free unused memory in the case array */
     compress_usecase(state->current.usecase);
+    return 0;
+}
+
+static int parse_set_start(struct parse_state *state)
+{
+    const char *name = strdup(state->attribs.value[e_attrib_name]);
+    struct dyn_array *array = &state->current.stream->constants_array;
+    struct constant *pc;
+    uint32_t val;
+
+    if (!name) {
+        return -ENOMEM;
+    }
+
+    if (attrib_to_uint(&val, state, e_attrib_val) == -EINVAL) {
+        free((void *)name);
+        return -EINVAL;
+    }
+
+    pc = new_constant(array, name, val);
+    if (pc == NULL) {
+        free((void *)name);
+        return -ENOMEM;
+    }
+
+    ALOGV("Added constant '%s'=%u", name, val);
     return 0;
 }
 
@@ -2563,6 +2643,16 @@ static void free_usecases( struct stream *stream )
     }
 }
 
+static void free_constants( struct stream *stream )
+{
+    struct constant *pc = stream->constants_array.constants;
+    int count = stream->constants_array.count;
+
+    for (; count > 0; count--, pc++) {
+        free((void *)pc->name);
+    }
+}
+
 void free_audio_config( struct config_mgr *cm )
 {
     struct dyn_array *path_array, *ctl_array, *stream_array;
@@ -2614,6 +2704,7 @@ void free_audio_config( struct config_mgr *cm )
         stream_array = &cm->stream_array;
         for(stream_idx = stream_array->count - 1; stream_idx >= 0; --stream_idx) {
             free_usecases(&stream_array->streams[stream_idx]);
+            free_constants(&stream_array->streams[stream_idx]);
         }
         dyn_array_free(&cm->stream_array);
 

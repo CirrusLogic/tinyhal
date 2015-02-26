@@ -123,6 +123,13 @@ const struct hw_stream *get_stream(  struct config_mgr *cm,
 const struct hw_stream *get_named_stream(struct config_mgr *cm,
                                    const char *name);
 
+/** Return the value of a constant defined by a <set> element
+ * @return      0 on success
+ * @return      -ENOSYS if the constant does not exist
+ */
+int get_stream_constant(const struct hw_stream *stream,
+                         const char *name, uint32_t *value);
+
 /** Test whether a named custom stream is defined */
 bool is_named_stream_defined(struct config_mgr *cm, const char *name);
 
