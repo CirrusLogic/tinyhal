@@ -434,15 +434,16 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
         apply_route(out->hw, v);
     }
 
-
-    if (stream_invoke_usecases(out->hw, kvpairs) >= 0) {
-        ret = 0;
-    }
+    stream_invoke_usecases(out->hw, kvpairs);
 
     pthread_mutex_unlock(&adev->lock);
 
-    ALOGV("-out_set_parameters(%p):%d", out, ret);
-    return ret;
+    ALOGV("-out_set_parameters(%p)", out);
+
+    /* Its meaningless to return an error here - it's not an error if
+     * we were sent a parameter we aren't interested in
+     */
+    return 0;
 }
 
 static char * out_get_parameters(const struct audio_stream *stream, const char *keys)
@@ -1144,10 +1145,14 @@ static int out_compress_set_parameters(struct audio_stream *stream, const char *
 
     str_parms_destroy(parms);
 
-    ret = out_set_parameters(&out->common.stream.common, kv_pairs);
+    out_set_parameters(&out->common.stream.common, kv_pairs);
 
     ALOGV("-out_compress_set_parameters(%p)", out);
-    return ret;
+
+    /* Its meaningless to return an error here - it's not an error if
+     * we were sent a parameter we aren't interested in
+     */
+    return 0;
 }
 
 static int do_init_out_compress(struct stream_out_compress *out,
@@ -2245,8 +2250,12 @@ out:
     pthread_mutex_unlock(&in->common.lock);
     str_parms_destroy(parms);
 
-    ALOGV("-in_pcm_set_parameters(%p):%d", stream, ret);
-    return ret;
+    ALOGV("-in_pcm_set_parameters(%p)", stream);
+
+    /* Its meaningless to return an error here - it's not an error if
+     * we were sent a parameter we aren't interested in
+     */
+    return 0;
 }
 
 static void do_close_in_pcm(struct audio_stream *stream)
