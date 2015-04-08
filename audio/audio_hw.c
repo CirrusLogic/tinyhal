@@ -679,7 +679,8 @@ static void out_pcm_fill_params(struct stream_out_pcm *out,
     out->hw_channel_count = config->channels;
     out->common.buffer_size = pcm_frames_to_bytes(out->pcm, config->period_size);
 
-    out->common.latency = (config->period_size * 1000) / config->rate;
+    out->common.latency = (config->period_size *
+                           config->period_count * 1000) / config->rate;
 }
 
 /* must be called with hw device and output stream mutexes locked */
@@ -791,6 +792,9 @@ static int do_init_out_pcm( struct stream_out_pcm *out,
     out->common.stream.get_render_position = out_pcm_get_render_position;
 
     out->common.buffer_size = out_pcm_cfg_period_size(out) * out->common.frame_size;
+
+    out->common.latency = (out_pcm_cfg_period_size(out) *
+                out_pcm_cfg_period_count(out) * 1000) / out->common.sample_rate;
 
     return 0;
 }
