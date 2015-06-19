@@ -612,8 +612,11 @@ static int do_init_out_common( struct stream_out_common *out,
     out->channel_count = popcount(out->channel_mask);
 
     /* Default settings */
+#ifdef AUDIO_DEVICE_API_VERSION_3_0
+    out->frame_size = audio_stream_out_frame_size(&out->stream);
+#else
     out->frame_size = audio_stream_frame_size(&out->stream.common);
-
+#endif
     /* Apply initial route */
     apply_route(out->hw, devices);
 
@@ -1421,8 +1424,11 @@ static int do_init_in_common( struct stream_in_common *in,
     in->channel_mask = config->channel_mask;
     in->channel_count = popcount(in->channel_mask);
 
+#ifdef AUDIO_DEVICE_API_VERSION_3_0
+    in->frame_size = audio_stream_in_frame_size(&in->stream);
+#else
     in->frame_size = audio_stream_frame_size(&in->stream.common);
-
+#endif
     /* Save devices so we can apply initial routing after we've
      * been told the input_source and opened the stream
      */
@@ -2300,7 +2306,11 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
                                    audio_devices_t devices,
                                    audio_output_flags_t flags,
                                    struct audio_config *config,
-                                   struct audio_stream_out **stream_out)
+                                   struct audio_stream_out **stream_out
+#ifdef AUDIO_DEVICE_API_VERSION_3_0
+                                   , const char *address
+#endif
+                                   )
 {
     struct audio_device *adev = (struct audio_device *)dev;
     union {
@@ -2386,7 +2396,13 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
                                   audio_io_handle_t handle,
                                   audio_devices_t devices,
                                   struct audio_config *config,
-                                  struct audio_stream_in **stream_in)
+                                  struct audio_stream_in **stream_in
+#ifdef AUDIO_DEVICE_API_VERSION_3_0
+                                  , audio_input_flags_t flags,
+                                  const char *address,
+                                  audio_source_t source
+#endif
+                                  )
 {
     struct audio_device *adev = (struct audio_device *)dev;
     struct stream_in_pcm *in = NULL;

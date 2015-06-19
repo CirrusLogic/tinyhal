@@ -23,7 +23,7 @@ LOCAL_MODULE := libaudiohalcm
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)
 LOCAL_MODULE_TAGS := optional
 
-LOCAL_CFLAGS += -Werror
+LOCAL_CFLAGS += -Werror -Wno-error=unused-parameter -Wno-unused-parameter
 
 LOCAL_C_INCLUDES += \
 	external/tinycompress/include \
