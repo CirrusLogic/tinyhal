@@ -1683,7 +1683,7 @@ char *probe_trim_spaces(char *str)
 static int probe_config_file(struct parse_state *state)
 {
     int i, len;
-    char buf[40],*codec;
+    char buf[40], name[80], *codec;
     FILE *fp = NULL;
 
     fp = fopen(state->init_probe.file, "r");
@@ -1693,7 +1693,7 @@ static int probe_config_file(struct parse_state *state)
     }
 
     if (fgets(buf,sizeof(buf),fp) == NULL) {
-		ALOGE("I/O error reading codec probe file");
+        ALOGE("I/O error reading codec probe file");
         return -EIO;
     }
 
@@ -1705,7 +1705,6 @@ static int probe_config_file(struct parse_state *state)
     {
         if (strcmp(codec, state->init_probe.codec_case_array.codec_cases[i].codec_name) == 0)
         {
-            state->init_probe.new_xml_file = strdup(state->init_probe.codec_case_array.codec_cases[i].file);
             break;
         }
     }
@@ -1714,6 +1713,9 @@ static int probe_config_file(struct parse_state *state)
         ALOGE("Codec probe file not found");
         return 0;
     }
+
+    snprintf(name, sizeof(name), "/system/etc/%s", state->init_probe.codec_case_array.codec_cases[i].file);
+    state->init_probe.new_xml_file = strdup(name);
 
     if (strcmp(state->init_probe.new_xml_file, state->cur_xml_file) == 0) {
         /*There is no new xml file to redirect */
@@ -2339,30 +2341,22 @@ static int do_parse(struct parse_state *state)
     return ret;
 }
 
-static int open_config_file(struct parse_state *state, char *file)
+static int open_config_file(struct parse_state *state, const char *file)
 {
-    char name[80], cur_file[40];
-    char property[PROPERTY_VALUE_MAX];
-
     free((void *)state->cur_xml_file);
 
-
     if (file == NULL) {
-        property_get("ro.product.device", property, "generic");
-        snprintf(name, sizeof(name), "/system/etc/audio.%s.xml", property);
-        snprintf(cur_file, sizeof(cur_file), "audio.%s.xml", property);
-        state->cur_xml_file = strdup(cur_file);
-    } else {
-        snprintf(name, sizeof(name), "/system/etc/%s", file);
-        state->cur_xml_file = strdup(file);
+        ALOGE("Invalid file name (NULL)\n");
+        return -EINVAL;
     }
+    state->cur_xml_file = strdup(file);
 
-    ALOGV("Reading configuration from %s\n", name);
-    state->file = fopen(name, "r");
+    ALOGV("Reading configuration from %s\n", file);
+    state->file = fopen(file, "r");
     if (state->file) {
         return 0;
     } else {
-        ALOGE_IF(!state->file, "Failed to open config file %s", name);
+        ALOGE_IF(!state->file, "Failed to open config file %s", file);
         return -ENOSYS;
     }
 }
@@ -2464,7 +2458,7 @@ static void print_ctls(const struct config_mgr *cm)
     }
 }
 
-static int parse_config_file(struct config_mgr *cm)
+static int parse_config_file(struct config_mgr *cm, const char *file_name)
 {
     struct parse_state *state;
     int ret = 0;
@@ -2483,13 +2477,11 @@ static int parse_config_file(struct config_mgr *cm)
     }
 
     state->parser = XML_ParserCreate(NULL);
-
+    if ( !state->parser ) {
+        goto fail;
+    }
+    ret = open_config_file(state,file_name);
     do {
-        if (state->file) {
-            fclose(state->file);
-        }
-
-        ret = open_config_file(state, state->init_probe.new_xml_file);
         if (ret == 0) {
             ret = -ENOMEM;
             if (state->init_probe.new_xml_file != NULL) {
@@ -2508,7 +2500,15 @@ static int parse_config_file(struct config_mgr *cm)
             ret = -ENOMEM;
             break;
         }
-    } while (state->init_probe.new_xml_file != NULL );
+
+        if (state->init_probe.new_xml_file != NULL) {
+            if (state->file) {
+                fclose(state->file);
+            }
+
+            ret = open_config_file(state, state->init_probe.new_xml_file);
+        }
+    } while (state->init_probe.new_xml_file != NULL);
 
     if (ret >= 0) {
         print_ctls(cm);
@@ -2527,15 +2527,17 @@ fail:
  * Initialization
  *********************************************************************/
 
-struct config_mgr *init_audio_config()
+struct config_mgr *init_audio_config(const char *config_file_name)
 {
     struct stream *streams;
     int ret;
 
     struct config_mgr* mgr = new_config_mgr();
 
-    if (0 != parse_config_file(mgr)) {
+    ret = parse_config_file(mgr, config_file_name);
+    if (ret != 0) {
         free(mgr);
+        errno = -ret;
         return NULL;
     }
 

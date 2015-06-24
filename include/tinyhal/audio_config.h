@@ -98,8 +98,10 @@ return (stream->type == e_stream_out_hw)
     || (stream->type == e_stream_in_hw);
 }
 
-/** Initialize audio config layer */
-struct config_mgr *init_audio_config();
+/** Initialize audio config layer
+ * On error return value is NULL and errno is set
+ */
+struct config_mgr *init_audio_config(const char *config_file_name);
 
 /** Delete audio config layer */
 void free_audio_config( struct config_mgr *cm );

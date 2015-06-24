@@ -2838,6 +2838,8 @@ static int adev_open(const hw_module_t* module, const char* name,
                      hw_device_t** device)
 {
     struct audio_device *adev;
+    char file_name[80];
+    char property[PROPERTY_VALUE_MAX];
     int ret;
 
     if (strcmp(name, AUDIO_HARDWARE_INTERFACE) != 0)
@@ -2867,9 +2869,14 @@ static int adev_open(const hw_module_t* module, const char* name,
     adev->hw_device.close_input_stream = adev_close_input_stream;
     adev->hw_device.dump = adev_dump;
 
-    adev->cm = init_audio_config();
+    property_get("ro.product.device", property, "generic");
+    snprintf(file_name, sizeof(file_name), "/system/etc/audio.%s.xml", property);
+
+    ALOGV("Reading configuration from %s\n", file_name);
+    adev->cm = init_audio_config(file_name);
     if (!adev->cm) {
-        ret = -EINVAL;
+        ret = -errno;
+        ALOGE("Failed to open config file %s (%d)", file_name, ret);
         goto fail;
     }
 
