@@ -24,6 +24,7 @@
 #include <cutils/log.h>
 #include <cutils/properties.h>
 #include <cutils/compiler.h>
+#include <ctype.h>
 
 #include <system/audio.h>
 
@@ -59,6 +60,8 @@ struct path;
 struct device;
 struct usecase;
 struct scase;
+struct codec_probe;
+struct codec_case;
 
 /* Dynamically extended array of fixed-size objects */
 struct dyn_array {
@@ -73,6 +76,7 @@ struct dyn_array {
         struct usecase     *usecases;
         struct scase       *cases;
         struct ctl         *ctls;
+        struct codec_case  *codec_cases;
         const char         **path_names;
     };
 };
@@ -104,6 +108,17 @@ struct ctl {
 struct path {
     int                 id;         /* Integer identifier of this path */
     struct dyn_array    ctl_array;
+};
+
+struct codec_case {
+    const char *codec_name;
+    const char *file;
+};
+
+struct codec_probe {
+    const char *file;
+    char *new_xml_file;           /* To store the the new xml file after parsing the codec_probe */
+    struct dyn_array codec_case_array;
 };
 
 struct device {
@@ -189,6 +204,8 @@ enum element_index {
     e_elem_init,
     e_elem_mixer,
     e_elem_audiohal,
+    e_elem_codec_probe,
+    e_elem_codec_case,
 
     e_elem_count
 };
@@ -210,6 +227,7 @@ enum attrib_index {
     e_attrib_period_count,
     e_attrib_min,
     e_attrib_max,
+    e_attrib_file,
 
     e_attrib_count
 };
@@ -246,6 +264,7 @@ struct parse_stack_entry {
 struct parse_state {
     struct config_mgr   *cm;
     FILE                *file;
+    const char          *cur_xml_file;     /* To store the current xml file name*/
     XML_Parser          parser;
     char                read_buf[256];
     int                 parse_error; /* value >0 aborts without error */
@@ -268,6 +287,7 @@ struct parse_state {
         struct path     *path;
         struct usecase  *usecase;
         struct scase    *scase;
+        struct codec_probe *codec_probe;
     } current;
 
     /* This array hold a de-duplicated list of all path names encountered */
@@ -277,6 +297,7 @@ struct parse_state {
      * mixer setup control settings under <mixer><init>
      */
     struct path         init_path;
+    struct codec_probe  init_probe;
 
     struct {
         int             index;
@@ -882,6 +903,9 @@ static int parse_enable_start(struct parse_state *state);
 static int parse_disable_start(struct parse_state *state);
 static int parse_ctl_start(struct parse_state *state);
 static int parse_init_start(struct parse_state *state);
+static int parse_codec_probe_start(struct parse_state *state);
+static int parse_codec_probe_end(struct parse_state *state);
+static int parse_codec_case_start(struct parse_state *state);
 
 static const struct parse_element elem_table[e_elem_count] = {
     [e_elem_ctl] =    {
@@ -995,8 +1019,26 @@ static const struct parse_element elem_table[e_elem_count] = {
         .name = "audiohal",
         .valid_attribs = 0,
         .required_attribs = 0,
-        .valid_subelem = BIT(e_elem_mixer),
+        .valid_subelem = BIT(e_elem_mixer) | BIT(e_elem_codec_probe),
         .start_fn = NULL,
+        .end_fn = NULL
+        },
+
+    [e_elem_codec_probe] =    {
+        .name = "codec_probe",
+        .valid_attribs = BIT(e_attrib_file),
+        .required_attribs = BIT(e_attrib_file),
+        .valid_subelem = BIT(e_elem_codec_case),
+        .start_fn = parse_codec_probe_start,
+        .end_fn = parse_codec_probe_end
+        },
+
+    [e_elem_codec_case] =    {
+        .name = "case",
+        .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_file),
+        .required_attribs = BIT(e_attrib_name) | BIT(e_attrib_file),
+        .valid_subelem = 0,
+        .start_fn = parse_codec_case_start,
         .end_fn = NULL
         }
 };
@@ -1016,7 +1058,8 @@ static const struct parse_attrib attrib_table[e_attrib_count] = {
     [e_attrib_period_size] = {"period_size"},
     [e_attrib_period_count] = {"period_count"},
     [e_attrib_min] = {"min"},
-    [e_attrib_max] = {"max"}
+    [e_attrib_max] = {"max"},
+    [e_attrib_file] = {"file"}
  };
 
 static const struct parse_device device_table[] = {
@@ -1110,6 +1153,21 @@ static struct ctl* new_ctl(struct dyn_array *array, const char *name)
     return c;
 }
 
+static struct codec_case* new_codec_case(struct dyn_array *array, const char *codec, const char *file)
+{
+    struct codec_case *cc;
+
+    if (dyn_array_extend(array) < 0) {
+        return NULL;
+    }
+
+    cc = &array->codec_cases[array->count - 1];
+    cc->codec_name = codec;
+    cc->file = file;
+
+    return cc;
+}
+
 static void compress_ctl(struct ctl *ctl)
 {
 }
@@ -1145,6 +1203,11 @@ static struct scase* new_case(struct dyn_array *array, const char *name)
     sc->ctl_array.elem_size = sizeof(struct ctl);
     sc->name = name;
     return sc;
+}
+
+static void compress_probe(struct codec_probe *cp)
+{
+    dyn_array_fix(&cp->codec_case_array);
 }
 
 static void compress_case(struct scase *sc)
@@ -1292,6 +1355,30 @@ static void path_names_free(struct parse_state *state)
     for (i = array->count - 1; i >= 0; --i) {
         free((void*)array->path_names[i]);
     }
+    dyn_array_free(array);
+}
+
+static void codec_probe_free(struct parse_state *state)
+{
+    struct dyn_array *array = &state->init_probe.codec_case_array;
+    int i;
+
+    for (i = array->count - 1; i >= 0; --i) {
+        free((void*)array->codec_cases[i].codec_name);
+        array->codec_cases[i].codec_name = NULL;
+        free((void*)array->codec_cases[i].file);
+        array->codec_cases[i].file = NULL;
+    }
+
+    free((void*)state->init_probe.file);
+    state->init_probe.file = NULL;
+
+    free((void*)state->cur_xml_file);
+    state->cur_xml_file = NULL;
+
+    free((void*)state->init_probe.new_xml_file);
+    state->init_probe.new_xml_file = NULL;
+
     dyn_array_free(array);
 }
 
@@ -1484,6 +1571,25 @@ fail:
     return ret;
 }
 
+
+static int parse_codec_case_start(struct parse_state * state)
+{
+    const char *codec = strdup(state->attribs.value[e_attrib_name]);
+    const char *file = strdup(state->attribs.value[e_attrib_file]);
+    struct dyn_array *array = &state->current.codec_probe->codec_case_array;
+    struct codec_case  *cc = NULL;
+    int ret = 0;
+
+    cc = new_codec_case(array, codec, file);
+    if (cc == NULL) {
+        ret = -ENOMEM;
+        free((void*)codec);
+        free((void*)file);
+    }
+
+    return ret;
+}
+
 static int parse_init_start(struct parse_state *state)
 {
     /* The <init> section inside <mixer> is really just a
@@ -1494,6 +1600,107 @@ static int parse_init_start(struct parse_state *state)
     state->current.path = &state->init_path;
 
     ALOGV("Added init path");
+    return 0;
+}
+
+char *probe_trim_spaces(char *str)
+{
+    int len;
+    char *end;
+
+    while(isspace(*str))
+        ++str;
+
+    len = strlen(str);
+
+    if(!len)
+        return str;
+
+    end = str + len -1;
+    while ((end > str) && isspace(*end))
+        end--;
+    *(end + 1) = '\0';
+
+    return str;
+}
+
+
+static int probe_config_file(struct parse_state *state)
+{
+    int i, len;
+    char buf[40],*codec;
+    FILE *fp = NULL;
+
+    fp = fopen(state->init_probe.file, "r");
+    while (fp == NULL) {
+        usleep(50000);
+        fp = fopen(state->init_probe.file, "r");
+    }
+
+    if (fgets(buf,sizeof(buf),fp) == NULL) {
+		ALOGE("I/O error reading codec probe file");
+        return -EIO;
+    }
+
+    codec = probe_trim_spaces(buf);
+    free((void*)state->init_probe.new_xml_file);
+    state->init_probe.new_xml_file = NULL;
+
+    for (i = 0; i < (int)state->init_probe.codec_case_array.count; ++i)
+    {
+        if (strcmp(codec, state->init_probe.codec_case_array.codec_cases[i].codec_name) == 0)
+        {
+            state->init_probe.new_xml_file = strdup(state->init_probe.codec_case_array.codec_cases[i].file);
+            break;
+        }
+    }
+
+    if (i == (int)state->init_probe.codec_case_array.count) {
+        ALOGE("Codec probe file not found");
+        return 0;
+    }
+
+    if (strcmp(state->init_probe.new_xml_file, state->cur_xml_file) == 0) {
+        /*There is no new xml file to redirect */
+        free((void*)state->init_probe.new_xml_file);
+        state->init_probe.new_xml_file = NULL;
+        XML_StopParser(state->parser,false);
+        ALOGE("A codec probe case can't redirect to its own config file");
+        return -EINVAL;
+    } else {
+        /* We are Stopping the Parser as we got new codec xml file
+        * And we will restart the parser with that new file
+        */
+        XML_StopParser(state->parser,XML_TRUE);
+    }
+
+    return 0;
+}
+
+static int parse_codec_probe_start(struct parse_state *state)
+{
+    const char *file = strdup(state->attribs.value[e_attrib_file]);
+    int ret = 0;
+
+    if (state->init_probe.file == NULL) {
+        state->init_probe.file = file;
+        state->current.codec_probe = &state->init_probe;
+        ret = 0;
+    } else {
+        ALOGE("The codec_probe block redefined");
+        free((void*)file);
+        ret = -EINVAL;
+    }
+    return ret;
+}
+
+static int parse_codec_probe_end(struct parse_state *state)
+{
+
+    compress_probe(state->current.codec_probe);
+    state->current.codec_probe = NULL;
+    probe_config_file(state);
+
     return 0;
 }
 
@@ -2057,7 +2264,7 @@ static int do_parse(struct parse_state *state)
     /* First element must be <audiohal> */
     state->stack.entry[0].valid_subelem = BIT(e_elem_audiohal);
 
-    while (!eof && (state->parse_error == 0)) {
+    while (!eof && (state->parse_error == 0) ) {
         len = fread(state->read_buf, 1, sizeof(state->read_buf), state->file);
         if (ferror(state->file)) {
             ALOGE("I/O error reading config file");
@@ -2077,13 +2284,23 @@ static int do_parse(struct parse_state *state)
     return ret;
 }
 
-static int open_config_file(struct parse_state *state)
+static int open_config_file(struct parse_state *state, char *file)
 {
-    char name[80];
+    char name[80], cur_file[40];
     char property[PROPERTY_VALUE_MAX];
 
-    property_get("ro.product.device", property, "generic");
-    snprintf(name, sizeof(name), "/system/etc/audio.%s.xml", property);
+    free((void *)state->cur_xml_file);
+
+
+    if (file == NULL) {
+        property_get("ro.product.device", property, "generic");
+        snprintf(name, sizeof(name), "/system/etc/audio.%s.xml", property);
+        snprintf(cur_file, sizeof(cur_file), "audio.%s.xml", property);
+        state->cur_xml_file = strdup(cur_file);
+    } else {
+        snprintf(name, sizeof(name), "/system/etc/%s", file);
+        state->cur_xml_file = strdup(file);
+    }
 
     ALOGV("Reading configuration from %s\n", name);
     state->file = fopen(name, "r");
@@ -2095,10 +2312,13 @@ static int open_config_file(struct parse_state *state)
     }
 }
 
+
 static void cleanup_parser(struct parse_state *state)
 {
     if (state) {
         path_names_free(state);
+
+        codec_probe_free(state);
 
         dyn_array_free(&state->init_path.ctl_array);
 
@@ -2114,6 +2334,33 @@ static void cleanup_parser(struct parse_state *state)
     }
 }
 
+static int init_state(struct parse_state *state)
+{
+    int ret;
+
+    if (state == NULL) {
+        ALOGE("Invalid argument\n");
+        ret -EINVAL;
+    }
+
+    state->path_name_array.elem_size = sizeof(const char *);
+    state->init_path.ctl_array.elem_size = sizeof(struct ctl);
+    state->init_probe.codec_case_array.elem_size = sizeof(struct codec_case);
+
+    /* "off" and "on" are pre-defined path names */
+    ret = add_path_name(state, predefined_path_name_table[0]);
+    if (ret < 0) {
+        return ret;
+    }
+    ret = add_path_name(state, predefined_path_name_table[1]);
+    if (ret < 0) {
+        return ret;
+    }
+
+    return 0;
+}
+
+
 static int parse_config_file(struct config_mgr *cm)
 {
     struct parse_state *state;
@@ -2123,30 +2370,42 @@ static int parse_config_file(struct config_mgr *cm)
     if (!state) {
         return -ENOMEM;
     }
+
     state->cm = cm;
-    state->path_name_array.elem_size = sizeof(const char *);
-    state->init_path.ctl_array.elem_size = sizeof(struct ctl);
+    state->init_probe.new_xml_file = NULL;
 
-    /* "off" and "on" are pre-defined path names */
-    ret = add_path_name(state, predefined_path_name_table[0]);
+    ret = init_state(state);
     if (ret < 0) {
-        goto fail;
-    }
-    ret = add_path_name(state, predefined_path_name_table[1]);
-    if (ret < 0) {
-        goto fail;
+         goto fail;
     }
 
-    ret = open_config_file(state);
-    if (ret == 0) {
-        ret = -ENOMEM;
-        state->parser = XML_ParserCreate(NULL);
-        if (state->parser) {
+    state->parser = XML_ParserCreate(NULL);
+
+    do {
+        if (state->file) {
+            fclose(state->file);
+        }
+
+        ret = open_config_file(state, state->init_probe.new_xml_file);
+        if (ret == 0) {
+            ret = -ENOMEM;
+            if (state->init_probe.new_xml_file != NULL) {
+                free((void*)state->init_probe.file);
+                state->init_probe.file = NULL;
+                XML_ParserReset(state->parser, NULL);
+                free((void*)state->init_probe.new_xml_file);
+                state->init_probe.new_xml_file = NULL;
+            }
+
             XML_SetUserData(state->parser, state);
             XML_SetElementHandler(state->parser, parse_section_start, parse_section_end);
             ret = do_parse(state);
+        } else {
+            ALOGE("Error while opening XML file\n");
+            ret = -ENOMEM;
+            break;
         }
-    }
+    } while (state->init_probe.new_xml_file != NULL );
 
     if (ret >= 0) {
         /* Initialize the mixer by applying the <init> path */
