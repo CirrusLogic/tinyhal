@@ -54,6 +54,26 @@ Key features include:
 - Use-case manager (configuration file and ALSA control handling) is a separate
     library so can be re-used with different HAL implementations
 
+==================
+BUILD DEPENDENCIES
+==================
+
+Requires:
+ - tinyalsa
+ - tinycompress
+ - expat
+
+TinyHAL requires the upstream (mainline) versions of tinyalsa and tinecompress
+since it generally depends on new features and we submit contributions to both
+tinyalsa and tinycompress.
+
+The upstream versions are available from:
+tinyalsa: https://github.com/tinyalsa
+tinycompress: http://git.alsa-project.org/?p=tinycompress.git;a=summary
+
+Note: merges into the mainline tinyalsa are only done occasionally so you should
+also check the pull requests for any new patches that are needed for TinyHAL.
+
 =================
 HOW TINYHAL WORKS
 =================
