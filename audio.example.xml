@@ -37,7 +37,7 @@ property ro.product.device
     The 'card' attribute is optional and sets the ALSA card number of the mixer
     device - if not given it defaults to 0 -->
 
-	<mixer card="0">
+        <mixer card="0">
 
         <!-- init element lists control settings required to initialize the
         hardware and driver. These settings are applied only once when the
@@ -76,7 +76,7 @@ property ro.product.device
             <ctl name="Codec Config" index="8" val="0x7f,0x54,0xaa,0xaa"/>
 
         </init>
-	</mixer>
+        </mixer>
 
 <!-- Next you must list all the devices supported by the hardware. The
 name attribute of the <device> element identifies the device. These names are
@@ -134,7 +134,7 @@ entry so the effect is
         is opened or closed.
 -->
 
-	<device name="speaker">
+        <device name="speaker">
         <path name="on">
             <!-- List of ctl element for control values to apply
             when this device is enabled -->
@@ -172,9 +172,9 @@ entry so the effect is
         <path name="pcm_out_dis">
             <ctl name="PCM Speaker switch" val="0"/>
         </path>
-	</device>
+        </device>
 
-	<device name="headphone">
+        <device name="headphone">
         <path name="on">
             <ctl name="Jack Enable" val="1"/>
         </path>
@@ -187,7 +187,7 @@ entry so the effect is
         <path name="pcm_out_dis">
             <ctl name="PCM Jack switch" val="0"/>
         </path>
-	</device>
+        </device>
 
 <!-- Following the device definitions there must be a <stream> entry
 for every output and input stream supported by the hardware. It is also
