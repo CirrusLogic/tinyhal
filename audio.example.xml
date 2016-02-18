@@ -10,9 +10,32 @@ property ro.product.device
 -->
 
 <audiohal>
-    <!-- mixer element _must_ be first. The 'card' attribute is optional
-    and sets the ALSA card number of the mixer device - if not given it
-    defaults to 0 -->
+    <!-- Optional codec_probe section tells TinyHAL to read an identifier from
+    the first line of the given file, strip leading and trailing whitespace, and
+    compare it against the list of cases. If any case is matched TinyHAL will
+    load the given XML file and process it instead of the current file.
+    This allows TinyHAL to automatically select a suitable configuration for the
+    hardware based on a file or pseudo-file.
+    If none of the cases match TinyHAL will continue to process the current
+    XML file
+    -->
+
+    <codec_probe file="/sys/class/sound/card0/id">
+        <!-- the file pointed to can be any normal file or pseudo-file. Only
+        the first line is used. A typical example is to use the pseudo-file
+        /sys/class/sound/card0/id which contains a string name of the card
+        or codec -->
+
+        <!-- List of strings that will be compared against the first line of
+        the file. If a match is found TinyHAL will switch to processing the
+        file given for that case -->
+        <case name="CODEC123" file="audio.123.xml" />
+        <case name="CODEC957" file="audio.957.xml" />
+    </codec_probe>
+
+    <!-- mixer element _must_ appear before any of the other definitions.
+    The 'card' attribute is optional and sets the ALSA card number of the mixer
+    device - if not given it defaults to 0 -->
 
 	<mixer card="0">
 

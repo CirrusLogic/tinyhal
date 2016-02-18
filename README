@@ -54,6 +54,9 @@ Key features include:
 - Use-case manager (configuration file and ALSA control handling) is a separate
     library so can be re-used with different HAL implementations
 
+- Support for auto-selecting which configuration file to use, based on reading
+    an ID file or pseudo-file
+
 ==================
 BUILD DEPENDENCIES
 ==================
@@ -158,3 +161,29 @@ Stream closed=>
     if (disable path label defined)
         if ("global" stream defines this label)
             invoke ALSA settings from "global" stream label
+
+===========================
+Auto-detecting the hardware
+===========================
+To allow building a standard system image that can be used on multiple hardware
+TinyHAL includes an ability to auto-select which configuration file to load.
+This is based on having a file or pseudo-file that contains as its first line
+a string identifying the hardware. TinyHAL doesn't care how this file is
+generated, the most typical use is to point it at the pseudo-file
+/sys/class/sound/card0/id, which contains a single line giving the name of
+the audio card (as defined by the kernel audio card driver or codec driver.)
+But it could just as well be any readable pseudo-file, or a real file created
+on startup by the init script.
+
+The first line from the given file is stripped of leading and trailing
+whitespace and then compared against a list of strings provided in the
+initial XML file that TinyHAL loads on startup. For each string an alternate
+XML filename is given.
+
+If one of these strings matches, TinyHAL will abandon processing of the current
+XML file and instead start processing the alternate XML file. If none of the
+strings match, TinyHAL will continue to process the current XML file.
+
+The syntax for this is shown in audio.example.xml (see the codec_probe block)
+
+
