@@ -93,6 +93,7 @@ struct ctl {
     const char          *name;
     uint32_t            index;
     uint32_t            array_count;
+    enum mixer_ctl_type type;
 
     /* If the control couldn't be opened during boot the value will hold
      * a pointer to the original value string from the config file and will
@@ -382,6 +383,7 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
             return -EINVAL;
     }
 
+    pctl->type = ctl_type;
     pctl->id = mixer_ctl_get_id(ctl);
     return 0;
 }
@@ -1150,6 +1152,7 @@ static struct ctl* new_ctl(struct dyn_array *array, const char *name)
     c->id = UINT_MAX;
     c->index = INVALID_CTL_INDEX;
     c->name = name;
+    c->type = MIXER_CTL_TYPE_UNKNOWN;
     return c;
 }
 
@@ -1474,7 +1477,7 @@ static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
     }
 
     free(str);
-    free((void *)val_str);
+    free((void *)val_str); /* no need to keep this string now */
     c->value.data = pdatablock;
     return 0;
 
@@ -2460,6 +2463,7 @@ void free_audio_config( struct config_mgr *cm )
 {
     struct dyn_array *path_array, *ctl_array, *stream_array;
     int dev_idx, path_idx, ctl_idx, stream_idx;
+    struct ctl *c;
 
     if (cm) {
         /* Free all devices */
@@ -2470,24 +2474,37 @@ void free_audio_config( struct config_mgr *cm )
                 /* Free all ctls in path */
                 ctl_array = &path_array->paths[path_idx].ctl_array;
                 for (ctl_idx = ctl_array->count - 1; ctl_idx >= 0; --ctl_idx) {
-                    if (ctl_array->ctls[ctl_idx].name) {
-                        free((void*)ctl_array->ctls[ctl_idx].name);
-                        ctl_array->ctls[ctl_idx].name = NULL;
-                    }
-                    if (ctl_array->ctls[ctl_idx].value.string) {
-                        free((void*)ctl_array->ctls[ctl_idx].value.string);
-                        ctl_array->ctls[ctl_idx].value.string = NULL;
-                    }
-                    if (ctl_array->ctls[ctl_idx].value.data) {
-                        free((void*)ctl_array->ctls[ctl_idx].value.data);
-                        ctl_array->ctls[ctl_idx].value.data = NULL;
+                    c = &ctl_array->ctls[ctl_idx];
+                    /* The name attribute is mandatory for controls */
+                    free((void *)c->name);
+
+                    switch (c->type) {
+                    /*
+                     * The val attribute has been freed for the BOOL/INT
+                     * types of controls
+                     */
+                    case MIXER_CTL_TYPE_BOOL:
+                    case MIXER_CTL_TYPE_INT:
+                        break;
+                    /*
+                     * The val attribute has been converted to byte array
+                     * for the BYTE type of controls
+                     */
+                    case MIXER_CTL_TYPE_BYTE:
+                        free((void *)c->value.data);
+                        break;
+                    default:
+                        free((void *)c->value.string);
+                        break;
                     }
                 }
+
                 dyn_array_free(ctl_array);
             }
 
             dyn_array_free(path_array);
         }
+
         dyn_array_free(&cm->device_array);
 
         stream_array = &cm->stream_array;

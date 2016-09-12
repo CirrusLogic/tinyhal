@@ -2871,7 +2871,7 @@ static int adev_open(const hw_module_t* module, const char* name,
 
 fail:
     if (adev->cm) {
-        /*free_audio_config(adev->cm);*/ /* Currently broken */
+        free_audio_config(adev->cm);
     }
 
     free(adev);
