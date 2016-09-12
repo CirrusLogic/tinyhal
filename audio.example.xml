@@ -84,9 +84,11 @@ recognized:
     "global"        dummy global device - see explanation below
     "speaker"       AUDIO_DEVICE_OUT_SPEAKER
     "earpiece"      AUDIO_DEVICE_OUT_EARPIECE
-    "headset"       AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_IN_WIRED_HEADSET
+    "headset"       AUDIO_DEVICE_OUT_WIRED_HEADSET
+    "headset_in"    AUDIO_DEVICE_IN_WIRED_HEADSET
     "headphone"     AUDIO_DEVICE_OUT_WIRED_HEADPHONE
-    "sco"           AUDIO_DEVICE_OUT_ALL_SCO | AUDIO_DEVICE_IN_ALL_SCO
+    "sco"           AUDIO_DEVICE_OUT_ALL_SCO
+    "sco_in"        AUDIO_DEVICE_IN_ALL_SCO
     "a2dp"          AUDIO_DEVICE_OUT_ALL_A2DP
     "usb"           AUDIO_DEVICE_OUT_ALL_USB
     "mic"           AUDIO_DEVICE_IN_BUILTIN_MIC
