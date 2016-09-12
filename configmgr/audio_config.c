@@ -2363,6 +2363,56 @@ static int init_state(struct parse_state *state)
     return 0;
 }
 
+static void print_ctls(const struct config_mgr *cm)
+{
+    const struct dyn_array *path_array, *ctl_array;
+    const struct device *dev;
+    const struct ctl *c;
+    uint dev_idx, path_idx, ctl_idx;
+
+    if (!cm)
+        return;
+
+    ALOGV("%d devices", cm->device_array.count);
+    for (dev_idx = 0; dev_idx < cm->device_array.count; dev_idx++) {
+        dev = &cm->device_array.devices[dev_idx];
+        path_array = &dev->path_array;
+        ALOGV("Device %d: type 0x%x, %d paths",
+                dev_idx, dev->type, path_array->count);
+        for (path_idx = 0; path_idx < path_array->count; path_idx++) {
+            ctl_array = &path_array->paths[path_idx].ctl_array;
+            ALOGV("Path %d: %d ctls", path_idx, ctl_array->count);
+            for (ctl_idx = 0; ctl_idx < ctl_array->count; ctl_idx++) {
+                c = &ctl_array->ctls[ctl_idx];
+                ALOGV("Ctl %d: "
+                        "id %d, "
+                        "name %s, "
+                        "index %d, "
+                        "array_count %d, "
+                        "type %d ",
+                        ctl_idx,
+                        c->id,
+                        c->name,
+                        c->index,
+                        c->array_count,
+                        c->type);
+
+                switch (c->type) {
+                case MIXER_CTL_TYPE_BOOL:
+                case MIXER_CTL_TYPE_INT:
+                    ALOGV("int: %d", c->value.uinteger);
+                    break;
+                case MIXER_CTL_TYPE_BYTE:
+                    ALOGV("byte[0]: %d", c->value.data[0]);
+                    break;
+                default:
+                    ALOGV("string: \"%s\"", c->value.string);
+                    break;
+                }
+            }
+        }
+    }
+}
 
 static int parse_config_file(struct config_mgr *cm)
 {
@@ -2411,6 +2461,8 @@ static int parse_config_file(struct config_mgr *cm)
     } while (state->init_probe.new_xml_file != NULL );
 
     if (ret >= 0) {
+        print_ctls(cm);
+
         /* Initialize the mixer by applying the <init> path */
         /* No need to take mutex during initialization */
         apply_path_l(cm, &state->init_path);
