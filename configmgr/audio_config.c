@@ -2340,7 +2340,7 @@ static int init_state(struct parse_state *state)
 
     if (state == NULL) {
         ALOGE("Invalid argument\n");
-        ret -EINVAL;
+        return -EINVAL;
     }
 
     state->path_name_array.elem_size = sizeof(const char *);
