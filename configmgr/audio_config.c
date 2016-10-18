@@ -1002,6 +1002,7 @@ static int parse_enable_start(struct parse_state *state);
 static int parse_disable_start(struct parse_state *state);
 static int parse_ctl_start(struct parse_state *state);
 static int parse_init_start(struct parse_state *state);
+static int parse_init_end(struct parse_state *state);
 static int parse_codec_probe_start(struct parse_state *state);
 static int parse_codec_probe_end(struct parse_state *state);
 static int parse_codec_case_start(struct parse_state *state);
@@ -1111,7 +1112,7 @@ static const struct parse_element elem_table[e_elem_count] = {
         .required_attribs = 0,
         .valid_subelem = BIT(e_elem_ctl),
         .start_fn = parse_init_start,
-        .end_fn = NULL
+        .end_fn = parse_init_end
         },
 
     [e_elem_mixer] =    {
@@ -1234,11 +1235,10 @@ static void dyn_array_fix(struct dyn_array *array)
     const uint size = array->count * array->elem_size;
     void *p = realloc(array->data, size);
 
-    if (p)
-        {
+    if (p) {
         array->data = p;
         array->max_count = array->count;
-        }
+    }
 }
 
 static void dyn_array_free(struct dyn_array *array)
@@ -1719,6 +1719,13 @@ static int parse_init_start(struct parse_state *state)
     state->current.path = &state->init_path;
 
     ALOGV("Added init path");
+    return 0;
+}
+
+static int parse_init_end(struct parse_state *state)
+{
+    compress_path(state->current.path);
+    state->current.path = NULL;
     return 0;
 }
 
