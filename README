@@ -66,7 +66,7 @@ Requires:
  - tinycompress
  - expat
 
-TinyHAL requires the upstream (mainline) versions of tinyalsa and tinecompress
+TinyHAL requires the upstream (mainline) versions of tinyalsa and tinycompress
 since it generally depends on new features and we submit contributions to both
 tinyalsa and tinycompress.
 
