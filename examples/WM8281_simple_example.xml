@@ -1,0 +1,138 @@
+<!--
+ Copyright (C) 2017 Cirrus Logic, Inc.
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+
+<!-- This is a simple generic example of routing for a Cirrus Logic WM8281 codec.
+
+     Assumes:
+         host is connected to AIF1
+         headphones/headset are on HPOUT1
+         microphone is on IN2
+-->
+
+<audiohal>
+	<mixer card="0">
+		<init>
+			<!-- setup standard HPOUT volume -->
+			<ctl name="HPOUT1 Digital Volume" val="100" />
+
+			<!-- setup microphone input volume -->
+			<ctl name="IN2L Volume" val="8" />
+			<ctl name="IN2R Volume" val="8" />
+			<ctl name="IN2L Digital Volume" val="96" />
+			<ctl name="IN2R Digital Volume" val="96" />
+
+			<!-- enable high-pass filter on mic -->
+			<ctl name="IN2L HPF Switch" val="1" />
+			<ctl name="IN2R HPF Switch" val="1" />
+
+			<!-- select bit rate for digital mic -->
+			<ctl name="IN2 OSR" val="3.072MHz" />
+		</init>
+	</mixer>
+
+	<device name="speaker">
+		<path name="on">
+			<ctl name="Speaker Digital Switch" val="1"/>
+		</path>
+		<path name="off">
+			<ctl name="Speaker Digital Switch" val="0"/>
+		</path>
+		<path name="on_pcm">
+			<!-- we do this when PCM output is routed to speaker-->
+			<ctl name="SPKOUTL Input 1" val="AIF1RX1" />
+			<ctl name="SPKOUTR Input 1" val="AIF1RX2" />
+		</path>
+		<path name="off_pcm">
+			<!-- we do this when PCM output is no longer routed to speaker-->
+			<ctl name="SPKOUTL Input 1" val="None" />
+			<ctl name="SPKOUTR Input 1" val="None" />
+		</path>
+	</device>
+
+	<device name="headphone">
+		<path name="on">
+			<ctl name="HPOUT1 Digital Switch" val="1" />
+		</path>
+		<path name="off">
+			<ctl name="HPOUT1 Digital Switch" val="0" />
+		</path>
+		<path name="on_pcm">
+			<!-- we do this when PCM output is routed to headphone-->
+			<ctl name="HPOUT1L Input 1" val="AIF1RX1" />
+			<ctl name="HPOUT1R Input 1" val="AIF1RX2" />
+		</path>
+		<path name="off_pcm">
+			<!-- we do this when PCM output is no longer routed to headphone-->
+			<ctl name="HPOUT1L Input 1" val="None" />
+			<ctl name="HPOUT1R Input 1" val="None" />
+		</path>
+	</device>
+
+	<device name="headset">
+		<path name="on">
+			<ctl name="HPOUT1 Digital Switch" val="1" />
+		</path>
+		<path name="off">
+			<ctl name="HPOUT1 Digital Switch" val="0" />
+		</path>
+		<path name="on_pcm">
+			<!-- we do this when PCM output is routed to headset-->
+			<ctl name="HPOUT1L Input 1" val="AIF1RX1" />
+			<ctl name="HPOUT1R Input 1" val="AIF1RX2" />
+		</path>
+		<path name="off_pcm">
+			<!-- we do this when PCM output is no longer routed to headset-->
+			<ctl name="HPOUT1L Input 1" val="None" />
+			<ctl name="HPOUT1R Input 1" val="None" />
+		</path>
+	</device>
+
+	<device name="mic">
+		<path name="on">
+			<ctl name="IN2L Volume" val="8" />
+			<ctl name="IN2R Volume" val="8" />
+		</path>
+		<path name="off">
+			<ctl name="IN2L Volume" val="0" />
+			<ctl name="IN2R Volume" val="0" />
+		</path>
+		<path name="on_pcm_rec">
+			<!-- we do this when mic input is routed to PCM capture -->
+			<ctl name="AIF1TX1 Input 1" val="IN2L" />
+			<ctl name="AIF1TX2 Input 1" val="IN2R" />
+		</path>
+		<path name="off_pcm_rec">
+			<!-- we do this when mic input is no longer routed to PCM capture -->
+			<ctl name="AIF1TX1 Input 1" val="None" />
+			<ctl name="AIF1TX2 Input 1" val="None" />
+		</path>
+	</device>
+
+	<!-- Define PCM playback and capture streams @48kHz sample rate -->
+	<stream type="pcm" dir="out" card="0" device="0" rate="48000">
+
+		<!-- Custom path to apply in device entries when this
+		stream is routed to or unrouted from that device -->
+		<enable path="on_pcm"/>
+		<disable path="off_pcm"/>
+	</stream>
+
+	<stream type="pcm" dir="in" card="0" device="0" rate="48000">
+		<enable path="on_pcm_rec"/>
+		<disable path="off_pcm_rec"/>
+	</stream>
+
+</audiohal>
