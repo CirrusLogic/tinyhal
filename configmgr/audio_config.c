@@ -334,7 +334,7 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
         /* Update tinyalsa with any new controls that have been added
          * and try again
          */
-        mixer_update_ctls(cm->mixer);
+        mixer_add_new_ctls(cm->mixer);
         ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
     }
 
