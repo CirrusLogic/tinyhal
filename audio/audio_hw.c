@@ -67,11 +67,13 @@
 #define OUT_PERIOD_COUNT_DEFAULT 4
 #define OUT_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_OUT_STEREO
 #define OUT_CHANNEL_COUNT_DEFAULT 2
+#define OUT_RATE_DEFAULT 44100
 
 #define IN_PERIOD_SIZE_DEFAULT 256
 #define IN_PERIOD_COUNT_DEFAULT 4
 #define IN_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_IN_MONO
 #define IN_CHANNEL_COUNT_DEFAULT 1
+#define IN_RATE_DEFAULT 44100
 
 /* AudioFlinger does not re-read the buffer size after
  * issuing a routing or input_source change so the
@@ -647,7 +649,11 @@ static unsigned int out_pcm_cfg_period_size(struct stream_out_pcm *out)
 
 static unsigned int out_pcm_cfg_rate(struct stream_out_pcm *out)
 {
-    return out->common.hw->rate;
+    if (out->common.hw->rate != 0) {
+        return out->common.hw->rate;
+    } else {
+        return OUT_RATE_DEFAULT;
+    }
 }
 
 static unsigned int out_pcm_cfg_channel_count(struct stream_out_pcm *out)
@@ -1892,7 +1898,11 @@ static unsigned int in_pcm_cfg_period_size(struct stream_in_pcm *in)
 
 static unsigned int in_pcm_cfg_rate(struct stream_in_pcm *in)
 {
-    return in->common.hw->rate;
+    if (in->common.hw->rate != 0) {
+        return in->common.hw->rate;
+    } else {
+        return IN_RATE_DEFAULT;
+    }
 }
 
 static unsigned int in_pcm_cfg_channel_count(struct stream_in_pcm *in)
