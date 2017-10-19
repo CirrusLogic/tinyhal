@@ -21,7 +21,7 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := libaudiohalcm
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)
-LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE_TAGS := eng
 
 LOCAL_CFLAGS += -Werror -Wno-error=unused-parameter -Wno-unused-parameter
 
