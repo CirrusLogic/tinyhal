@@ -742,7 +742,7 @@ static int out_pcm_standby(struct audio_stream *stream)
 static ssize_t out_pcm_write(struct audio_stream_out *stream, const void* buffer,
                          size_t bytes)
 {
-    ALOGV("+out_pcm_write(%p) l=%u", stream, bytes);
+    ALOGV("+out_pcm_write(%p) l=%zu", stream, bytes);
 
     int ret = 0;
     struct stream_out_pcm *out = (struct stream_out_pcm *)stream;
@@ -910,7 +910,7 @@ static ssize_t out_compress_write(struct audio_stream_out *stream,
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
     int ret = 0;
 
-    ALOGV("out_compress_write(%p) %u", stream, bytes);
+    ALOGV("out_compress_write(%p) %zu", stream, bytes);
 
     ret = open_output_compress(out);
 
@@ -1292,7 +1292,7 @@ static int in_set_format(struct audio_stream *stream, audio_format_t format)
 static size_t in_get_buffer_size(const struct audio_stream *stream)
 {
     const struct stream_in_common *in = (struct stream_in_common *)stream;
-    ALOGV("in_get_buffer_size(%p): %u", stream, in->buffer_size );
+    ALOGV("in_get_buffer_size(%p): %zu", stream, in->buffer_size );
     return in->buffer_size;
 }
 
@@ -1828,7 +1828,7 @@ static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buf
     struct audio_device *adev = in->common.dev;
     int ret = 0;
 
-    ALOGV("+do_in_compress_pcm_read %d", bytes);
+    ALOGV("+do_in_compress_pcm_read %zu", bytes);
 
     pthread_mutex_lock(&in->common.lock);
     ret = start_compress_pcm_input_stream(in);
@@ -1988,7 +1988,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 
     in_pcm_fill_params( in, &config );
 
-    ALOGV("input buffer size=0x%x", in->common.buffer_size);
+    ALOGV("input buffer size=0x%zx", in->common.buffer_size);
 
     /*
      * If the stream rate differs from the PCM rate, we need to
@@ -2124,7 +2124,7 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
     struct audio_device *adev = in->common.dev;
     size_t frames_rq = bytes / in->common.frame_size;
 
-    ALOGV("+do_in_pcm_read %d", bytes);
+    ALOGV("+do_in_pcm_read %zu", bytes);
 
     pthread_mutex_lock(&in->common.lock);
     ret = start_pcm_input_stream(in);
