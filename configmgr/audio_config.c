@@ -330,6 +330,7 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
    /* Control wasn't found on boot, try to get it now */
 
     ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
+#ifndef TINYALSA_NO_ADD_NEW_CTRLS
     if (!ctl) {
         /* Update tinyalsa with any new controls that have been added
          * and try again
@@ -337,6 +338,7 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
         mixer_add_new_ctls(cm->mixer);
         ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
     }
+#endif
 
     if (!ctl) {
         ALOGW("Control '%s' not found", pctl->name);

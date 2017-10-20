@@ -22,7 +22,7 @@ Key features include:
 - Configuration via an XML file
 
 - As much configuration as possible done via a text configuration file,
-    minimizing the need for source code modifications 
+    minimizing the need for source code modifications
 
 - Custom streams can be defined to represent extra hardware audio routes
     outside of the standard Android playback and record - for example specific
@@ -76,6 +76,19 @@ tinycompress: http://git.alsa-project.org/?p=tinycompress.git;a=summary
 
 Note: merges into the mainline tinyalsa are only done occasionally so you should
 also check the pull requests for any new patches that are needed for TinyHAL.
+
+=====================================
+BUILDING AGAINST OLD LIBRARY VERSIONS
+=====================================
+The version of tinyalsa and tinycompress shipped with Android source is not
+usually the latest mainline so some functionality might be missing or different.
+By default TinyHAL builds against the upstream versions.
+
+There are build flags that you can define to disable or modify features if
+you are building against an older version of a library:
+
+TINYALSA_NO_ADD_NEW_CTRLS
+    define if your version of tinyalsa does not have mixer_add_new_ctls()
 
 =================
 HOW TINYHAL WORKS

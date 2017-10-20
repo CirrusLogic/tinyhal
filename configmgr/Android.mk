@@ -43,5 +43,9 @@ LOCAL_SHARED_LIBRARIES := \
 	libexpat	\
 	libtinyalsa	\
 
+ifeq ($(strip $(TINYALSA_NO_ADD_NEW_CTRLS)),true)
+LOCAL_CFLAGS += -DTINYALSA_NO_ADD_NEW_CTRLS
+endif
+
 include $(BUILD_SHARED_LIBRARY)
 
