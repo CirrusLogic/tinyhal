@@ -1353,7 +1353,7 @@ static void do_in_set_read_timestamp(struct stream_in_common *in)
  */
 static void do_in_realtime_delay(struct stream_in_common *in, size_t bytes)
 {
-    size_t required_interval;
+    nsecs_t required_interval;
     nsecs_t required_ns;
     nsecs_t elapsed_ns;
     struct timespec ts;
