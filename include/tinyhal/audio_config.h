@@ -20,6 +20,10 @@
 #include <stddef.h>
 #include <system/audio.h>
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 struct mixer_ctl;
 struct config_mgr;
 struct audio_config;
@@ -145,4 +149,9 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc);
 int apply_use_case( const struct hw_stream* stream,
                     const char *setting,
                     const char *case_name);
+
+#if defined(__cplusplus)
+}  /* extern "C" */
+#endif
+
 #endif  /* ifndef AUDIO_CONFIG_H */
