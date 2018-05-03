@@ -50,6 +50,10 @@
 
 #include <math.h>
 
+#ifdef ENABLE_STHAL_STREAMS
+#include <scchal/scc_audio.h>
+#endif
+
 /* Kit Kit doesn't change the HAL API version despite the API changing to
  * add compress support. Use an alternative way of ensuring we can still
  * build against Jellybean without the compress playback support
@@ -2420,6 +2424,18 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 
     ALOGV("+adev_open_input_stream");
 
+    ALOGV("Tinyhal opening input stream format %d, channel_mask=%04x, sample_rate %u"
+          " flags 0x%x source 0x%x\n",
+                config->format, config->channel_mask, config->sample_rate,
+                flags, source);
+
+#ifdef ENABLE_STHAL_STREAMS
+    if (source == AUDIO_SOURCE_HOTWORD ||
+        source == AUDIO_SOURCE_VOICE_RECOGNITION)
+            return cirrus_scc_open_stream(dev, handle, devices, config, stream_in,
+                                         flags, address, source);
+#endif
+
     *stream_in = NULL;
 
     /* We don't open a config manager stream here because we don't yet
@@ -2460,6 +2476,15 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
 {
     struct stream_in_common *in = (struct stream_in_common *)stream;
     ALOGV("adev_close_input_stream(%p)", stream);
+
+#ifdef ENABLE_STHAL_STREAMS
+    if (cirrus_is_scc_stream(stream)) {
+        ALOGV("adev_close_input_stream: closing scc stream\n");
+        cirrus_scc_close_stream(dev, stream);
+        return;
+    }
+#endif
+
     (in->close)(&stream->common);
 }
 
@@ -2884,6 +2909,13 @@ static int adev_open(const hw_module_t* module, const char* name,
     voice_trigger_init(adev);
 
     *device = &adev->hw_device.common;
+
+#ifdef ENABLE_STHAL_STREAMS
+    ret = cirrus_scc_init();
+    if (ret !=0)
+        return ret;
+#endif
+
     return 0;
 
 fail:
