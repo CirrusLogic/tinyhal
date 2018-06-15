@@ -59,7 +59,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libsysutils
 
 ifeq ($(strip $(VOICE_RECOGNITION_REQUIRES_UNSHORTEN)),true)
-LOCAL_C_INCLUDES += vendor/wolfson/tools/libs/libunshorten/include
+LOCAL_C_INCLUDES += vendor/cirrus/unshorten/lib/include
 LOCAL_CFLAGS += -DCOMPRESS_PCM_USE_UNSHORTEN
 LOCAL_SHARED_LIBRARIES += libunshorten
 endif
