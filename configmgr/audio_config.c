@@ -22,7 +22,6 @@
 #include <errno.h>
 #include <assert.h>
 #include <cutils/log.h>
-#include <cutils/properties.h>
 #include <cutils/compiler.h>
 #include <ctype.h>
 
@@ -833,7 +832,6 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
 const struct hw_stream *get_named_stream(struct config_mgr *cm,
                                    const char *name)
 {
-    int i;
     struct stream *s;
 
     ALOGV("+get_named_stream '%s'", name);
@@ -1279,10 +1277,6 @@ static struct codec_case* new_codec_case(struct dyn_array *array, const char *co
     return cc;
 }
 
-static void compress_ctl(struct ctl *ctl)
-{
-}
-
 static struct path* new_path(struct dyn_array *array, int id)
 {
     struct path *path;
@@ -1647,10 +1641,8 @@ static const char *debug_device_to_name(uint32_t device)
 static int parse_ctl_start(struct parse_state *state)
 {
     const char *name = strdup(state->attribs.value[e_attrib_name]);
-    const char *index = state->attribs.value[e_attrib_index];
     struct dyn_array *array;
     struct ctl *c = NULL;
-    enum mixer_ctl_type ctl_type;
     int ret;
 
     if (state->current.path) {
@@ -1754,7 +1746,7 @@ char *probe_trim_spaces(char *str)
 
 static int probe_config_file(struct parse_state *state)
 {
-    int i, len;
+    int i;
     char buf[40], name[80], *codec;
     FILE *fp = NULL;
 
@@ -2630,7 +2622,6 @@ fail:
 
 struct config_mgr *init_audio_config(const char *config_file_name)
 {
-    struct stream *streams;
     int ret;
 
     struct config_mgr* mgr = new_config_mgr();
