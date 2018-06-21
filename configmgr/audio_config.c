@@ -15,26 +15,32 @@
  */
 
 #define LOG_TAG "tiny_hal_config"
-/*#define LOG_NDEBUG 0*/
-/*#undef NDEBUG*/
 
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <assert.h>
+#include <ctype.h>
+#ifdef ANDROID
 #include <cutils/log.h>
 #include <cutils/compiler.h>
-#include <ctype.h>
-
 #include <system/audio.h>
+#else
+#include "audio_logging.h"
+#endif
 
 /* Workaround for linker error if audio_effect.h is included in multiple
  * source files. Prevent audio.h including it */
 #define ANDROID_AUDIO_EFFECT_H
 struct effect_interface_s;
 typedef struct effect_interface_s **effect_handle_t;
+#ifdef ANDROID
 #include <hardware/audio.h>
+#endif
 
 #include <tinyalsa/asoundlib.h>
 #include <expat.h>

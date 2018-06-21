@@ -18,7 +18,11 @@
 #define AUDIO_CONFIG_H
 
 #include <stddef.h>
+#ifdef ANDROID
 #include <system/audio.h>
+#else
+#include <tinyhal/audio_defs.h>
+#endif
 
 #if defined(__cplusplus)
 extern "C" {

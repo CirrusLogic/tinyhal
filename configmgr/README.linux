@@ -1,0 +1,7 @@
+Steps to build the congigmgr on linux
+-------------------------------------
+1) Install any tools necessary.
+	sudo apt-get install expat libexpat1 libexpat1-dev libxmltok1-dev
+2) You can configure the tinyalsa directory.
+   The default value was set to the tinyalsa which is beside the tinyhal
+3) Execute make to generate the .so files
