@@ -119,7 +119,7 @@ struct ctl {
 
 struct constant {
     const char *name;
-    uint32_t   value;
+    const char *value;
 };
 
 struct path {
@@ -945,8 +945,8 @@ exit:
 /*********************************************************************
  * Constants
  *********************************************************************/
-int get_stream_constant(const struct hw_stream *stream,
-                        const char *name, uint32_t *value)
+int get_stream_constant_string(const struct hw_stream *stream,
+                                const char *name, char const **value)
 {
     struct stream *s = (struct stream *)stream;
     struct constant *pc = s->constants_array.constants;
@@ -961,6 +961,24 @@ int get_stream_constant(const struct hw_stream *stream,
     }
     return -ENOSYS;
 }
+
+int get_stream_constant_uint32(const struct hw_stream *stream,
+                                const char *name, uint32_t *value)
+{
+    const char *string = NULL;
+    uint32_t val = 0;
+    int ret = get_stream_constant_string(stream, name, &string);
+
+    if (!ret) {
+        ret = string_to_uint(&val, string);
+        if (!ret) {
+            *value = val;
+        }
+    }
+
+    return ret;
+}
+
 
 /*********************************************************************
  * Config file parsing
@@ -1328,7 +1346,7 @@ static void compress_usecase(struct usecase *puc)
 }
 
 static struct constant* new_constant(struct dyn_array *array,
-                                     const char *name, uint32_t val)
+                                     const char *name, const char *val)
 {
     struct constant *pc;
 
@@ -1911,24 +1929,27 @@ static int parse_set_start(struct parse_state *state)
     const char *name = strdup(state->attribs.value[e_attrib_name]);
     struct dyn_array *array = &state->current.stream->constants_array;
     struct constant *pc;
-    uint32_t val;
+    const char *val = NULL;
 
     if (!name) {
         return -ENOMEM;
     }
 
-    if (attrib_to_uint(&val, state, e_attrib_val) == -EINVAL) {
+    val = strdup(state->attribs.value[e_attrib_val]);
+    if (!val) {
         free((void *)name);
-        return -EINVAL;
+        return -ENOMEM;
     }
 
     pc = new_constant(array, name, val);
     if (pc == NULL) {
         free((void *)name);
+        free((void *)val);
         return -ENOMEM;
     }
 
-    ALOGV("Added constant '%s'=%u", name, val);
+    ALOGV("Added constant '%s'=%s", name, val);
+
     return 0;
 }
 
@@ -2650,6 +2671,7 @@ static void free_constants( struct stream *stream )
 
     for (; count > 0; count--, pc++) {
         free((void *)pc->name);
+        free((void *)pc->value);
     }
 }
 
