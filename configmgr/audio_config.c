@@ -55,6 +55,10 @@ typedef struct effect_interface_s **effect_handle_t;
 
 #define INVALID_CTL_INDEX 0xFFFFFFFFUL
 
+#ifndef ETC_PATH
+#define ETC_PATH "/system/etc"
+#endif
+
 struct config_mgr;
 struct stream;
 struct path;
@@ -1787,7 +1791,7 @@ static int probe_config_file(struct parse_state *state)
         return 0;
     }
 
-    snprintf(name, sizeof(name), "/system/etc/%s", state->init_probe.codec_case_array.codec_cases[i].file);
+    snprintf(name, sizeof(name), "%s/%s", ETC_PATH, state->init_probe.codec_case_array.codec_cases[i].file);
     state->init_probe.new_xml_file = strdup(name);
 
     if (strcmp(state->init_probe.new_xml_file, state->cur_xml_file) == 0) {

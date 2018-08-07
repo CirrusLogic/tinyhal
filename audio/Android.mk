@@ -31,6 +31,11 @@ endif
 LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_MODULE_TAGS := optional
 
+ifeq ($(strip $(BOARD_USES_VENDORIMAGE)),true)
+LOCAL_PROPRIETARY_MODULE := true
+LOCAL_CFLAGS += -DETC_PATH=\"/vendor/etc/\"
+endif
+
 LOCAL_CFLAGS += -Werror -Wno-error=unused-parameter -Wno-unused-parameter
 
 LOCAL_C_INCLUDES += \
