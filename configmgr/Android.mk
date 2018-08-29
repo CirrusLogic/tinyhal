@@ -21,13 +21,13 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := libaudiohalcm
 LOCAL_MODULE_TAGS := optional
+LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_PATH)/../include
 
 LOCAL_CFLAGS += -Werror -Wno-error=unused-parameter -Wno-unused-parameter
 
 LOCAL_C_INCLUDES += \
 	external/tinycompress/include \
 	external/tinyalsa/include \
-	external/tinyhal/include \
 	external/expat/lib \
 	$(call include-path-for, audio-utils)
 

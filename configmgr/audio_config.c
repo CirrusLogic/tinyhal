@@ -38,7 +38,7 @@ typedef struct effect_interface_s **effect_handle_t;
 #include <tinyalsa/asoundlib.h>
 #include <expat.h>
 
-#include <tinyhal/audio_config.h>
+#include "../include/tinyhal/audio_config.h"
 
 #define MIXER_CARD_DEFAULT 0
 #define PCM_CARD_DEFAULT 0
