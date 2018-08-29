@@ -59,13 +59,11 @@ LOCAL_SHARED_LIBRARIES := \
 	libsysutils
 
 ifeq ($(strip $(VOICE_RECOGNITION_REQUIRES_UNSHORTEN)),true)
-LOCAL_C_INCLUDES += vendor/cirrus/unshorten/lib/include
 LOCAL_CFLAGS += -DCOMPRESS_PCM_USE_UNSHORTEN
 LOCAL_SHARED_LIBRARIES += libunshorten
 endif
 
 ifeq ($(strip $(VOICE_RECOGNITION_REQUIRES_STHAL)),true)
-LOCAL_C_INCLUDES += vendor/cirrus/scchal/include
 LOCAL_CFLAGS += -DENABLE_STHAL_STREAMS
 LOCAL_SHARED_LIBRARIES += libscc_audio
 endif
