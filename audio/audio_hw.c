@@ -62,10 +62,6 @@
 #define TINYHAL_COMPRESS_PLAYBACK
 #endif
 
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-#include <libunshorten/unshorten.h>
-#endif
-
 /* These values are defined in _frames_ (not bytes) to match the ALSA API */
 #define OUT_PERIOD_SIZE_DEFAULT 256
 #define OUT_PERIOD_COUNT_DEFAULT 4
@@ -79,15 +75,8 @@
 #define IN_CHANNEL_COUNT_DEFAULT 1
 #define IN_RATE_DEFAULT 44100
 
-/* AudioFlinger does not re-read the buffer size after
- * issuing a routing or input_source change so the
- * default buffer size must be suitable for both PCM
- * and compressed inputs
- */
-#define IN_COMPRESS_BUFFER_SIZE_DEFAULT 1024
-
-/* Maximum time we'll wait for data from a compress_pcm input */
-#define MAX_COMPRESS_PCM_TIMEOUT_MS     2100
+#define IN_PCM_BUFFER_SIZE_DEFAULT \
+        (IN_PERIOD_SIZE_DEFAULT * IN_CHANNEL_COUNT_DEFAULT * sizeof(uint16_t))
 
 /* How long compress_write() will wait for driver to signal a poll()
  * before giving up. Set to -1 to make it wait indefinitely
@@ -116,23 +105,6 @@ typedef struct {
 } async_common_t;
 #endif /* TINYHAL_COMPRESS_PLAYBACK */
 
-/* Voice trigger and voice recognition stream names */
-const char kVoiceTriggerStreamName[] = "voice trigger";
-const char kVoiceRecogStreamName[] = "voice recognition";
-
-/* States for voice trigger / voice recognition state machine */
-enum voice_state {
-    eVoiceNone,             /* no voice recognition hardware */
-    eVoiceTriggerIdle,      /* Trigger-only mode idle */
-    eVoiceTriggerArmed,     /* Trigger-only mode armed */
-    eVoiceTriggerFired,     /* Trigger-only mode received trigger */
-    eVoiceRecogIdle,        /* Full trigger+audio mode idle */
-    eVoiceRecogArmed,       /* Full trigger+audio mode armed */
-    eVoiceRecogFired,       /* Full trigger+audio mode received trigger */
-    eVoiceRecogAudio,       /* Full trigger+audio mode opened for audio */
-    eVoiceRecogReArm        /* Re-arm after audio */
-};
-
 struct audio_device {
     struct audio_hw_device hw_device;
 
@@ -140,20 +112,7 @@ struct audio_device {
     bool mic_mute;
     struct config_mgr *cm;
 
-    struct stream_in_pcm *active_voice_control;
-
-    enum voice_state voice_st;
-    audio_devices_t voice_trig_mic;
-
     const struct hw_stream* global_stream;
-
-    union {
-        /* config stream for trigger-only operation */
-        const struct hw_stream* voice_trig_stream;
-
-        /* config stream for trigger+voice operation */
-        const struct hw_stream* voice_recog_stream;
-    };
 };
 
 
@@ -231,18 +190,6 @@ struct in_resampler {
     int read_status;
 };
 
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-struct in_unshorten {
-    struct unshorten unshorten;
-    int8_t *in_buffer;
-    size_t in_buffer_size;
-    char * accumulator_buf;
-    char * accumulator_p;
-    size_t accumulator_buf_size;
-    size_t accumulator_avail;
-};
-#endif
-
 typedef void(*in_close_fn)(struct audio_stream *);
 
 /* Fields common to all types of input stream */
@@ -278,27 +225,17 @@ struct stream_in_common {
 struct stream_in_pcm {
     struct stream_in_common common;
 
-    union {
-        struct pcm *pcm;
-        struct compress *compress;
-    };
+    struct pcm *pcm;
 
     uint32_t hw_sample_rate;    /* actual sample rate of hardware */
     int hw_channel_count;  /* actual number of input channels */
     uint32_t period_size;       /* ... of PCM input */
 
     struct in_resampler resampler;
-
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-    struct in_unshorten unshorten;
-#endif
 };
 
 static uint32_t out_get_sample_rate(const struct audio_stream *stream);
 static uint32_t in_get_sample_rate(const struct audio_stream *stream);
-static void voice_trigger_audio_started_locked(struct audio_device *adev);
-static void voice_trigger_audio_ended_locked(struct audio_device *adev);
-static const char *voice_trigger_audio_stream_name(struct audio_device *adev);
 
 /*********************************************************************
  * Stream common functions
@@ -1390,16 +1327,6 @@ static void do_close_in_common(struct audio_stream *stream)
 
     in->stream.common.standby(stream);
 
-    /* active_voice_control is not cleared by standby so we must
-     * clear it here when stream is closed
-     */
-    pthread_mutex_lock(&adev->lock);
-    if ((struct stream_in_common *)in->dev->active_voice_control == in) {
-        in->dev->active_voice_control = NULL;
-        voice_trigger_audio_ended_locked(adev);
-    }
-    pthread_mutex_unlock(&adev->lock);
-
     if (in->hw != NULL) {
         release_stream(in->hw);
     }
@@ -1583,302 +1510,6 @@ static void in_resampler_free(struct stream_in_pcm *in)
 }
 
 /*********************************************************************
- * Unshorten wrapper
- *********************************************************************/
-
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-static int in_unshorten_read(struct stream_in_pcm *in,
-                                        char *dst, const size_t bytes)
-{
-    struct in_unshorten * const u = &in->unshorten;
-    size_t avail = 0;
-    size_t count = bytes;
-    const char *p;
-    size_t len;
-    int status;
-    int ret = 0;
-
-    ALOGV("+do_in_compress_pcm_unshorten %u", bytes);
-
-    if (u->accumulator_avail != 0) {
-        len = u->accumulator_avail;
-        if (len > count) {
-            len = count;
-        }
-
-        memcpy(dst, u->accumulator_p, len);
-
-        u->accumulator_avail -= len;
-        u->accumulator_p += len;
-        count -= len;
-        dst += len;
-    }
-
-    while (count > 0) {
-        status = unshorten_process(&u->unshorten);
-
-        if (status & UNSHORTEN_CORRUPT) {
-            ALOGE("shortened data is corrupt\n");
-            ret = -EINVAL;
-            goto out;
-        } else if (status & UNSHORTEN_OUTPUT_AVAILABLE) {
-            len = UNSHORTEN_OUTPUT_SIZE(status) * sizeof(Sample);
-            p = (const char *)unshorten_extract_output(&u->unshorten);
-
-            if (len <= count) {
-                memcpy(dst, p, len);
-                dst += len;
-                count -= len;
-            } else {
-                memcpy(dst, p, count);
-
-                len -= count;
-                if (len > u->accumulator_buf_size) {
-                    ALOGW("unshorten overflows accumulator");
-                    len = u->accumulator_buf_size;
-                }
-                memcpy(u->accumulator_buf, p + count, len);
-                u->accumulator_p = u->accumulator_buf;
-                u->accumulator_avail = len;
-                count = 0;
-                break;
-            }
-        } else if (status & UNSHORTEN_INPUT_REQUIRED) {
-            ret = compress_read(in->compress, u->in_buffer, u->in_buffer_size);
-            if (ret <= 0) {
-                ALOGV("No audio to unshorten");
-                break;
-            }
-
-            ret = unshorten_supply_input(&u->unshorten, u->in_buffer, ret);
-            if (ret != 0) {
-                break;
-            }
-        }
-    }
-out:
-    if (ret >= 0) {
-        ret = bytes - count;
-    }
-
-    ALOGV("-do_in_compress_pcm_unshorten %d", ret);
-    return bytes - count;
-}
-#endif
-
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-static int in_unshorten_init(struct in_unshorten *u, const struct compr_config *config)
-{
-    int ret;
-
-    u->in_buffer_size = config->fragment_size;
-    u->accumulator_buf_size = config->fragment_size * 2;
-    u->in_buffer = malloc(u->in_buffer_size);
-    u->accumulator_buf = malloc(u->accumulator_buf_size);
-
-    if ((u->in_buffer == NULL) || (u->accumulator_buf == NULL)) {
-        ret = -ENOMEM;
-        goto fail;
-    }
-
-    ret = init_unshorten(&u->unshorten);
-    if (ret != 0) {
-        ALOGE("Failed to create unshorten data (%d)", ret);
-        goto fail;
-    }
-
-    u->accumulator_avail = 0;
-    return 0;
-
-fail:
-    free(u->in_buffer);
-    free(u->accumulator_buf);
-    return ret;
-}
-#endif
-
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-static void in_unshorten_free(struct in_unshorten *u)
-{
-    free_unshorten(&u->unshorten);
-    free(u->in_buffer);
-    free(u->accumulator_buf);
-}
-#endif
-
-/*********************************************************************
- * PCM input stream via compressed channel
- *********************************************************************/
-
-/* must be called with hw device and input stream mutexes locked */
-static int do_open_compress_pcm_in(struct stream_in_pcm *in)
-{
-    struct snd_codec codec;
-    struct compress *compress;
-    int ret;
-
-    ALOGV("+do_open_compress_pcm_in");
-
-    if (in->common.hw == NULL) {
-        ALOGW("input_source not set");
-        ret = -EINVAL;
-        goto exit;
-    }
-
-    memset(&codec, 0, sizeof(codec));
-    codec.id = SND_AUDIOCODEC_PCM;
-    codec.ch_in = in->common.channel_count;
-    codec.sample_rate = in->common.sample_rate;
-    codec.format = SNDRV_PCM_FORMAT_S16_LE;
-
-    /* Fragment and buffer sizes should be configurable or auto-detected
-     * but are currently just hardcoded
-     */
-    struct compr_config config = {
-        .fragment_size = 4096,
-        .fragments = 1,
-        .codec = &codec
-    };
-
-    compress = compress_open(in->common.hw->card_number,
-                                in->common.hw->device_number,
-                                COMPRESS_OUT,
-                                &config);
-
-    if (!compress || !is_compress_ready(compress)) {
-        ret = errno;
-        ALOGE_IF(compress,"compress_open(in) failed: %s", compress_get_error(compress));
-        ALOGE_IF(!compress,"compress_open(in) failed");
-        compress_close(compress);
-        goto exit;
-    }
-
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-    ret = in_unshorten_init(&in->unshorten, &config);
-    if (ret < 0) {
-        compress_close(compress);
-        goto exit;
-    }
-#endif
-
-    in->compress = compress;
-    in->common.buffer_size = config.fragment_size * config.fragments * in->common.frame_size;
-    compress_start(in->compress);
-    ret = 0;
-
-exit:
-    ALOGV("-do_open_compress_pcm_in (%d)", ret);
-    return ret;
-}
-
-/* must be called with hw device and input stream mutexes locked */
-static int start_compress_pcm_input_stream(struct stream_in_pcm *in)
-{
-    struct audio_device *adev = in->common.dev;
-    int ms;
-    int ret;
-
-    ALOGV("start_compress_pcm_input_stream");
-
-    if (in->common.standby) {
-        ret = do_open_compress_pcm_in(in);
-        if (ret < 0) {
-            return ret;
-        }
-
-        /*
-         * We must not block AudioFlinger so limit the time that tinycompress
-         * will block for data to around twice the time it would take to fetch
-         * a buffer of data at the configured sample rate
-         */
-        ms = (1000LL * in->common.buffer_size) / (in->common.frame_size *
-                                                  in->common.sample_rate);
-
-        compress_set_max_poll_wait(in->compress, ms * 2);
-
-        in->common.standby = 0;
-    }
-
-    return 0;
-}
-
-/* must be called with hw device and input stream mutexes locked */
-static void do_in_compress_pcm_standby(struct stream_in_pcm *in)
-{
-    struct compress *c;
-    int ret;
-
-    ALOGV("+do_in_compress_pcm_standby");
-
-    if (!in->common.standby) {
-        c = in->compress;
-        in->compress = NULL;
-        compress_stop(c);
-        compress_close(c);
-
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-        in_unshorten_free(&in->unshorten);
-#endif
-    }
-    in->common.standby = true;
-
-    ALOGV("-do_in_compress_pcm_standby");
-}
-
-static ssize_t do_in_compress_pcm_read(struct audio_stream_in *stream, void* buffer,
-                                        size_t bytes)
-{
-    struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
-    struct audio_device *adev = in->common.dev;
-    int ret = 0;
-
-    ALOGV("+do_in_compress_pcm_read %zu", bytes);
-
-    pthread_mutex_lock(&in->common.lock);
-    ret = start_compress_pcm_input_stream(in);
-
-    if (ret < 0) {
-        goto exit;
-    }
-
-#ifdef COMPRESS_PCM_USE_UNSHORTEN
-    ret = in_unshorten_read(in, buffer, bytes);
-#else
-    ret = compress_read(in->compress, buffer, bytes);
-#endif
-    ALOGV_IF(ret == 0, "no data");
-
-    if (ret > 0) {
-        /*
-         * The interface between AudioFlinger and AudioRecord cannot cope
-         * with bursty or high-speed data and will lockup for periods if
-         * the data arrives faster than the app reads it. So we must limit
-         * the rate that we deliver PCM buffers to avoid triggering this
-         * condition. Allow data to be returned up to 4x realtime
-         */
-        do_in_realtime_delay(&in->common, bytes / 4);
-    }
-
-exit:
-    pthread_mutex_unlock(&in->common.lock);
-
-    ALOGV("-do_in_compress_pcm_read (%d)", ret);
-    return ret;
-}
-
-static void do_in_compress_pcm_close(struct stream_in_pcm *in)
-{
-    ALOGV("+do_in_compress_pcm_close");
-
-    if (in->compress != NULL) {
-        compress_stop(in->compress);
-        compress_close(in->compress);
-    }
-
-    ALOGV("-do_in_compress_pcm_close");
-}
-
-/*********************************************************************
  * PCM input stream
  *********************************************************************/
 
@@ -2038,7 +1669,6 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
     struct audio_config config;
     const char *stream_name;
     const struct hw_stream *hw = NULL;
-    bool voice_control = false;
     const int new_source = atoi(value);
 
     *was_changed = false;
@@ -2065,8 +1695,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         /* depends on voice recognition type and state whether we open
          * the voice recognition stream or generic PCM stream
          */
-        stream_name = voice_trigger_audio_stream_name(adev);
-        voice_control = true;
+        stream_name = "voice recognition";
         break;
 
     default:
@@ -2100,17 +1729,6 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         }
 
         in->common.hw = hw;
-
-        pthread_mutex_lock(&adev->lock);
-        if (voice_control) {
-            adev->active_voice_control = in;
-            voice_trigger_audio_started_locked(adev);
-        } else if (adev->active_voice_control == in) {
-            adev->active_voice_control = NULL;
-            voice_trigger_audio_ended_locked(adev);
-        }
-        pthread_mutex_unlock(&adev->lock);
-
         in->common.input_source = new_source;
         *was_changed = true;
         return 0;
@@ -2162,11 +1780,7 @@ static int in_pcm_standby(struct audio_stream *stream)
     pthread_mutex_lock(&in->common.lock);
 
     if (in->common.hw != NULL) {
-        if (stream_is_compressed_in(in->common.hw)) {
-            do_in_compress_pcm_standby(in);
-        } else {
             do_in_pcm_standby(in);
-        }
     }
 
     pthread_mutex_unlock(&in->common.lock);
@@ -2188,11 +1802,7 @@ static ssize_t in_pcm_read(struct audio_stream_in *stream, void* buffer,
         ALOGV("in_pcm_read(%p) (no routes)", stream);
         ret = -EINVAL;
     } else {
-        if (stream_is_compressed_in(in->common.hw)) {
-            ret = do_in_compress_pcm_read(stream, buffer, bytes);
-        } else {
-            ret = do_in_pcm_read(stream, buffer, bytes);
-        }
+        ret = do_in_pcm_read(stream, buffer, bytes);
     }
 
     /* If error, no data or muted, return a buffer of zeros and delay
@@ -2286,12 +1896,6 @@ static void do_close_in_pcm(struct audio_stream *stream)
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
 
-    if (in->common.hw != NULL) {
-        if (stream_is_compressed(in->common.hw)) {
-            do_in_compress_pcm_close(in);
-        }
-    }
-
     do_close_in_common(stream);
 }
 
@@ -2307,7 +1911,7 @@ static int do_init_in_pcm( struct stream_in_pcm *in,
      * this stream, it expects us to already know the buffer size.
      * We just have to hardcode something that might work
      */
-    in->common.buffer_size = IN_COMPRESS_BUFFER_SIZE_DEFAULT;
+    in->common.buffer_size = IN_PCM_BUFFER_SIZE_DEFAULT;
 
     return 0;
 }
@@ -2489,280 +2093,6 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
 }
 
 /*********************************************************************
- * Voice trigger state machine
- *********************************************************************/
-
-static void do_voice_trigger_open_stream(struct audio_device *adev, const char *streamName)
-{
-    audio_devices_t mic_device;
-
-    adev->voice_trig_stream = get_named_stream(adev->cm, streamName);
-
-    if (adev->voice_trig_stream != NULL) {
-        if (adev->voice_trig_mic == 0) {
-            /* No mic specified, default to internal mic */
-            mic_device = AUDIO_DEVICE_IN_BUILTIN_MIC;
-        } else {
-            mic_device = adev->voice_trig_mic;
-        }
-
-        apply_route(adev->voice_trig_stream, mic_device);
-    }
-}
-
-static void do_voice_trigger_close_stream(struct audio_device *adev)
-{
-    if (adev->voice_trig_stream != NULL) {
-        apply_route(adev->voice_trig_stream, 0);
-        release_stream(adev->voice_trig_stream);
-        adev->voice_trig_stream == NULL;
-    }
-}
-
-static void voice_trigger_enable(struct audio_device *adev)
-{
-    pthread_mutex_lock(&adev->lock);
-
-    ALOGV("+voice_trigger_enable (%u)", adev->voice_st);
-
-    switch (adev->voice_st) {
-        case eVoiceNone:
-            break;
-
-        case eVoiceTriggerIdle:
-        case eVoiceTriggerFired:
-            do_voice_trigger_open_stream(adev, kVoiceTriggerStreamName);
-            adev->voice_st = eVoiceTriggerArmed;
-            break;
-
-        case eVoiceTriggerArmed:
-            break;
-
-        case eVoiceRecogIdle:
-            do_voice_trigger_open_stream(adev, kVoiceRecogStreamName);
-            adev->voice_st = eVoiceRecogArmed;
-            break;
-
-        case eVoiceRecogArmed:
-        case eVoiceRecogFired:
-        case eVoiceRecogReArm:
-            break;
-
-        case eVoiceRecogAudio:
-            adev->voice_st = eVoiceRecogReArm;
-            break;
-    }
-
-    ALOGV("-voice_trigger_enable (%u)", adev->voice_st);
-
-    pthread_mutex_unlock(&adev->lock);
-}
-
-static void voice_trigger_disable(struct audio_device *adev)
-{
-    pthread_mutex_lock(&adev->lock);
-
-    ALOGV("+voice_trigger_disable (%u)", adev->voice_st);
-
-    switch (adev->voice_st) {
-        case eVoiceNone:
-            break;
-
-        case eVoiceTriggerIdle:
-            break;
-
-        case eVoiceTriggerFired:
-        case eVoiceTriggerArmed:
-            do_voice_trigger_close_stream(adev);
-            adev->voice_st = eVoiceTriggerIdle;
-            break;
-
-        case eVoiceRecogIdle:
-            break;
-
-        case eVoiceRecogArmed:
-            do_voice_trigger_close_stream(adev);
-            adev->voice_st = eVoiceRecogIdle;
-            break;
-
-        case eVoiceRecogFired:
-        case eVoiceRecogAudio:
-            /* If a full trigger+audio stream has fired we must wait for the */
-            /* audio capture stage to end before disabling it                */
-            break;
-
-        case eVoiceRecogReArm:
-            /* See note on previous case */
-            adev->voice_st = eVoiceRecogAudio;
-            break;
-    }
-
-    ALOGV("-voice_trigger_disable (%u)", adev->voice_st);
-
-    pthread_mutex_unlock(&adev->lock);
-}
-
-static void voice_trigger_triggered(struct audio_device *adev)
-{
-    pthread_mutex_lock(&adev->lock);
-
-    ALOGV("+voice_trigger_triggered (%u)", adev->voice_st);
-
-    switch (adev->voice_st) {
-        case eVoiceNone:
-        case eVoiceTriggerIdle:
-        case eVoiceTriggerFired:
-            break;
-
-        case eVoiceTriggerArmed:
-            adev->voice_st = eVoiceTriggerFired;
-            break;
-
-        case eVoiceRecogIdle:
-        case eVoiceRecogFired:
-        case eVoiceRecogAudio:
-        case eVoiceRecogReArm:
-            break;
-
-        case eVoiceRecogArmed:
-            adev->voice_st = eVoiceRecogFired;
-            break;
-    }
-
-    ALOGV("-voice_trigger_triggered (%u)", adev->voice_st);
-
-    pthread_mutex_unlock(&adev->lock);
-}
-
-static void voice_trigger_audio_started_locked(struct audio_device *adev)
-{
-    ALOGV("+voice_trigger_audio_started (%u)", adev->voice_st);
-
-    switch (adev->voice_st) {
-        case eVoiceNone:
-        case eVoiceTriggerIdle:
-        case eVoiceTriggerArmed:
-        case eVoiceTriggerFired:
-            break;
-
-        case eVoiceRecogIdle:
-        case eVoiceRecogArmed:
-            break;
-
-        case eVoiceRecogFired:
-            adev->voice_st = eVoiceRecogAudio;
-            break;
-
-        case eVoiceRecogAudio:
-        case eVoiceRecogReArm:
-            break;
-    }
-
-    ALOGV("-voice_trigger_audio_started (%d)", adev->voice_st);
-}
-
-static void voice_trigger_audio_ended_locked(struct audio_device *adev)
-{
-    ALOGV("+voice_trigger_audio_ended (%u)", adev->voice_st);
-
-    switch (adev->voice_st) {
-        case eVoiceNone:
-        case eVoiceTriggerIdle:
-        case eVoiceTriggerArmed:
-        case eVoiceTriggerFired:
-            break;
-
-        case eVoiceRecogIdle:
-        case eVoiceRecogArmed:
-        case eVoiceRecogFired:
-            break;
-
-        case eVoiceRecogAudio:
-            do_voice_trigger_close_stream(adev);
-            adev->voice_st = eVoiceRecogIdle;
-            break;
-
-        case eVoiceRecogReArm:
-            adev->voice_st = eVoiceRecogArmed;
-            break;
-    }
-
-    ALOGV("-voice_trigger_audio_ended (%d)", adev->voice_st);
-}
-
-static void voice_trigger_set_params(struct audio_device *adev, struct str_parms *parms)
-{
-    int ret;
-    char value[32];
-
-    ret = str_parms_get_str(parms, "voice_trigger_mic", value, sizeof(value));
-    if (ret >= 0) {
-        adev->voice_trig_mic = atoi(value);
-    }
-
-    ret = str_parms_get_str(parms, "voice_trigger", value, sizeof(value));
-    if (ret >= 0) {
-        if (strcmp(value, "2") == 0) {
-            voice_trigger_triggered(adev);
-        } else if (strcmp(value, "1") == 0) {
-            voice_trigger_enable(adev);
-        } else if (strcmp(value, "0") == 0) {
-            voice_trigger_disable(adev);
-        }
-    }
-}
-
-static const char *voice_trigger_audio_stream_name(struct audio_device *adev)
-{
-    /* no need to lock adev because we only need the instantaneous state */
-    switch (adev->voice_st) {
-        case eVoiceNone:
-        case eVoiceTriggerIdle:
-        case eVoiceTriggerArmed:
-        case eVoiceTriggerFired:
-            /* trigger-only hardware, so attempt to open a specific
-             * voice recognition stream
-             */
-            return kVoiceRecogStreamName;
-
-        case eVoiceRecogIdle:
-        case eVoiceRecogArmed:
-        case eVoiceRecogReArm:
-            /* recognizer has not fired, do not open the dedicated audio stream
-             * because there will not be any audio available from it. Fall
-             * back to just opening the normal recording path
-             */
-            return NULL;
-
-        case eVoiceRecogFired:
-            /* recognizer has fired so audio will be available from it */
-            return kVoiceRecogStreamName;
-
-        case eVoiceRecogAudio:
-            /* should never get here, state says audio stream is already open */
-            return NULL;
-
-        default:
-            /* stops compiler warning */
-            return NULL;
-    }
-}
-
-static void voice_trigger_init(struct audio_device *adev)
-{
-    if (is_named_stream_defined(adev->cm, kVoiceRecogStreamName)) {
-        ALOGV("Voice recognition mode");
-        adev->voice_st = eVoiceRecogIdle;
-    } else if (is_named_stream_defined(adev->cm, kVoiceTriggerStreamName)) {
-        ALOGV("Voice trigger mode");
-        adev->voice_st = eVoiceTriggerIdle;
-    } else {
-        ALOGV("no voice recognition available");
-        adev->voice_st = eVoiceNone;
-    }
-}
-
-/*********************************************************************
  * Global API functions
  *********************************************************************/
 static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
@@ -2773,12 +2103,6 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     char value[32];
 
     ALOGW("adev_set_parameters '%s'", kvpairs);
-
-    parms = str_parms_create_str(kvpairs);
-    if (parms) {
-        voice_trigger_set_params(adev, parms);
-        str_parms_destroy(parms);
-    }
 
     if (adev->global_stream != NULL)
         stream_invoke_usecases(adev->global_stream, kvpairs);
@@ -2837,8 +2161,8 @@ static size_t adev_get_input_buffer_size(const struct audio_hw_device *dev,
                     audio_bytes_per_sample(config->format) *
                     popcount(config->channel_mask);
 
-    if (s > IN_COMPRESS_BUFFER_SIZE_DEFAULT) {
-        s = IN_COMPRESS_BUFFER_SIZE_DEFAULT;
+    if (s > IN_PCM_BUFFER_SIZE_DEFAULT) {
+        s = IN_PCM_BUFFER_SIZE_DEFAULT;
     }
 
     return s;
@@ -2906,7 +2230,6 @@ static int adev_open(const hw_module_t* module, const char* name,
     }
 
     adev->global_stream = get_named_stream(adev->cm, "global");
-    voice_trigger_init(adev);
 
     *device = &adev->hw_device.common;
 
