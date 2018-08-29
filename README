@@ -90,6 +90,9 @@ you are building against an older version of a library:
 TINYALSA_NO_ADD_NEW_CTRLS
     define if your version of tinyalsa does not have mixer_add_new_ctls()
 
+TINYALSA_NO_CTL_GET_ID
+    define if your version of tinyalsa does not have mixer_ctl_get_id()
+
 =================
 HOW TINYHAL WORKS
 =================

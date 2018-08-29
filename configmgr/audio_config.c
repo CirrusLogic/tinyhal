@@ -88,8 +88,17 @@ enum {
     e_path_id_custom_base = 2
 };
 
-struct ctl {
+/* Old versions of tinalsa don't have mixer_ctl_get_id() */
+struct ctl_ref {
+#ifdef TINYALSA_NO_CTL_GET_ID
+    struct mixer_ctl    *ctl;
+#else
     uint                id;
+#endif
+};
+
+struct ctl {
+    struct ctl_ref      ref;
     const char          *name;
     uint32_t            index;
     uint32_t            array_count;
@@ -139,7 +148,7 @@ struct usecase {
 };
 
 struct stream_control {
-    uint                id;
+    struct ctl_ref      ref;
     uint                index;
     uint                min;
     uint                max;
@@ -315,6 +324,45 @@ static const char *debug_device_to_name(uint32_t device);
  * Routing control
  *********************************************************************/
 
+static inline void ctl_ref_init(struct ctl_ref *pctl_ref)
+{
+#ifdef TINYALSA_NO_CTL_GET_ID
+    pctl_ref->ctl = NULL;
+#else
+    pctl_ref->id = UINT_MAX;
+#endif
+}
+
+static inline bool ctl_ref_valid(struct ctl_ref *pctl_ref)
+{
+#ifdef TINYALSA_NO_CTL_GET_ID
+    return pctl_ref->ctl != NULL;
+#else
+    return pctl_ref->id != UINT_MAX;
+#endif
+}
+
+static inline void ctl_set_ref(struct ctl_ref *pctl_ref,
+                               struct mixer_ctl *ctl)
+{
+#ifdef TINYALSA_NO_CTL_GET_ID
+    pctl_ref->ctl = ctl;
+#else
+    pctl_ref->id = mixer_ctl_get_id(ctl);
+#endif
+}
+
+static inline struct mixer_ctl *ctl_get_ptr(const struct config_mgr *cm,
+                                            const struct ctl_ref *pctl_ref)
+{
+#ifdef TINYALSA_NO_CTL_GET_ID
+    (void)cm;
+    return pctl_ref->ctl;
+#else
+    return mixer_get_ctl(cm->mixer, pctl_ref->id);
+#endif
+}
+
 static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
 {
     enum mixer_ctl_type ctl_type;
@@ -322,7 +370,7 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
     struct mixer_ctl *ctl;
     int ret;
 
-    if (pctl->id != UINT_MAX) {
+    if (ctl_ref_valid(&pctl->ref)) {
         /* control already populated on boot */
         return 0;
     }
@@ -330,10 +378,11 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
    /* Control wasn't found on boot, try to get it now */
 
     ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
-#ifndef TINYALSA_NO_ADD_NEW_CTRLS
+#if !defined(TINYALSA_NO_ADD_NEW_CTRLS) || !defined(TINYALSA_NO_CTL_GET_ID)
     if (!ctl) {
         /* Update tinyalsa with any new controls that have been added
-         * and try again
+         * and try again. NOTE: only safe if mixer_ctl_get_id() supported
+         * because the pointers are likely to change as the list is updated.
          */
         mixer_add_new_ctls(cm->mixer);
         ctl = mixer_get_ctl_by_name(cm->mixer, pctl->name);
@@ -386,7 +435,8 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
     }
 
     pctl->type = ctl_type;
-    pctl->id = mixer_ctl_get_id(ctl);
+    ctl_set_ref(&pctl->ref, ctl);
+
     return 0;
 }
 
@@ -406,7 +456,7 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
             break;
         }
 
-        ctl = mixer_get_ctl(cm->mixer, pctl->id);
+        ctl = ctl_get_ptr(cm, &pctl->ref);
 
         switch (mixer_ctl_get_type(ctl)) {
             case MIXER_CTL_TYPE_BOOL:
@@ -653,7 +703,7 @@ uint32_t get_routed_devices( const struct hw_stream *stream )
 static int set_vol_ctl(struct stream *stream,
                        const struct stream_control *volctl, uint percent)
 {
-    struct mixer_ctl *ctl = mixer_get_ctl(stream->cm->mixer, volctl->id);
+    struct mixer_ctl *ctl = ctl_get_ptr(stream->cm, &volctl->ref);
     uint val;
     uint range;
 
@@ -681,8 +731,8 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
     struct stream *s = (struct stream *)stream;
     int ret = -ENOSYS;
 
-    if (s->controls.volume_left.id != UINT_MAX) {
-        if (s->controls.volume_right.id == UINT_MAX) {
+    if (ctl_ref_valid(&s->controls.volume_left.ref)) {
+        if (!ctl_ref_valid(&s->controls.volume_right.ref)) {
             /* Control is mono so average left and right */
             left_pc = (left_pc + right_pc) / 2;
         }
@@ -690,7 +740,7 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
         ret = set_vol_ctl(s, &s->controls.volume_left, left_pc);
     }
 
-    if (s->controls.volume_right.id != UINT_MAX) {
+    if (ctl_ref_valid(&s->controls.volume_right.ref)) {
         ret = set_vol_ctl(s, &s->controls.volume_right, right_pc);
     }
 
@@ -1151,7 +1201,7 @@ static struct ctl* new_ctl(struct dyn_array *array, const char *name)
     }
 
     c = &array->ctls[array->count - 1];
-    c->id = UINT_MAX;
+    ctl_ref_init(&c->ref);
     c->index = INVALID_CTL_INDEX;
     c->name = name;
     c->type = MIXER_CTL_TYPE_UNKNOWN;
@@ -1271,8 +1321,8 @@ static struct stream* new_stream(struct dyn_array *array, struct config_mgr *cm)
     s->cm = cm;
     s->enable_path = -1;    /* by default no special path to invoke */
     s->disable_path = -1;
-    s->controls.volume_left.id = UINT_MAX;
-    s->controls.volume_right.id = UINT_MAX;
+    ctl_ref_init(&s->controls.volume_left.ref);
+    ctl_ref_init(&s->controls.volume_right.ref);
     return s;
 }
 
@@ -1866,11 +1916,11 @@ static int parse_stream_ctl_start(struct parse_state *state)
     }
 
     if (0 == strcmp(function, "leftvol")) {
-        ALOGE_IF(state->current.stream->controls.volume_left.id != UINT_MAX,
+        ALOGE_IF(ctl_ref_valid(&state->current.stream->controls.volume_left.ref),
                                 "Left volume control specified again");
         streamctl = &(state->current.stream->controls.volume_left);
     } else if (0 == strcmp(function, "rightvol")) {
-        ALOGE_IF(state->current.stream->controls.volume_right.id != UINT_MAX,
+        ALOGE_IF(ctl_ref_valid(&state->current.stream->controls.volume_right.ref),
                                 "Right volume control specified again");
         streamctl = &(state->current.stream->controls.volume_right);
     } else {
@@ -1920,11 +1970,11 @@ static int parse_stream_ctl_start(struct parse_state *state)
         break;
     }
 
-    streamctl->id = mixer_ctl_get_id(ctl);
+    ctl_set_ref(&streamctl->ref, ctl);
 
-    ALOGV("(%p) Added control '%s' id %u function '%s' range %u-%u",
+    ALOGV("(%p) Added control '%s' function '%s' range %u-%u",
                 state->current.stream,
-                name, streamctl->id, function, streamctl->min, streamctl->max);
+                name, function, streamctl->min, streamctl->max);
 
     return 0;
 }
@@ -2387,13 +2437,11 @@ static void print_ctls(const struct config_mgr *cm)
             for (ctl_idx = 0; ctl_idx < ctl_array->count; ctl_idx++) {
                 c = &ctl_array->ctls[ctl_idx];
                 ALOGV("Ctl %d: "
-                        "id %d, "
                         "name %s, "
                         "index %d, "
                         "array_count %d, "
                         "type %d ",
                         ctl_idx,
-                        c->id,
                         c->name,
                         c->index,
                         c->array_count,

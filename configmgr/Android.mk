@@ -32,6 +32,7 @@ LOCAL_C_INCLUDES += \
 	external/expat/lib \
 	$(call include-path-for, audio-utils)
 
+
 LOCAL_SRC_FILES := \
 	audio_config.c
 
@@ -45,6 +46,10 @@ LOCAL_SHARED_LIBRARIES := \
 
 ifeq ($(strip $(TINYALSA_NO_ADD_NEW_CTRLS)),true)
 LOCAL_CFLAGS += -DTINYALSA_NO_ADD_NEW_CTRLS
+endif
+
+ifeq ($(strip $(TINYALSA_NO_CTL_GET_ID)),true)
+LOCAL_CFLAGS += -DTINYALSA_NO_CTL_GET_ID
 endif
 
 include $(BUILD_SHARED_LIBRARY)
