@@ -51,7 +51,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libutils \
 	libdl	\
 	liblog	\
-	libhardware_legacy \
+	libhardware \
 	libtinyalsa	\
 	libtinycompress	\
 	libaudiohalcm \
