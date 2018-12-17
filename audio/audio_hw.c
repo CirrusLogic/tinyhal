@@ -556,7 +556,7 @@ static int do_init_out_common( struct stream_out_common *out,
     out->format = config->format;
     out->sample_rate = config->sample_rate;
     out->channel_mask = config->channel_mask;
-    out->channel_count = popcount(out->channel_mask);
+    out->channel_count = audio_channel_count_from_out_mask(out->channel_mask);
 
     /* Default settings */
 #ifdef AUDIO_DEVICE_API_VERSION_3_0
@@ -1171,7 +1171,7 @@ static int do_init_out_compress(struct stream_out_compress *out,
             return -EINVAL;
     }
 
-    out->codec.ch_out = popcount(config->channel_mask);
+    out->codec.ch_out = audio_channel_count_from_out_mask(config->channel_mask);
 
     /* Open compress dev to check that it exists and
      * get the buffer size. If it isn't required soon
@@ -1367,7 +1367,7 @@ static int do_init_in_common( struct stream_in_common *in,
     in->format = config->format;
     in->sample_rate = config->sample_rate;
     in->channel_mask = config->channel_mask;
-    in->channel_count = popcount(in->channel_mask);
+    in->channel_count = audio_channel_count_from_in_mask(in->channel_mask);
 
 #ifdef AUDIO_DEVICE_API_VERSION_3_0
     in->frame_size = audio_stream_in_frame_size(&in->stream);
@@ -2167,7 +2167,7 @@ static size_t adev_get_input_buffer_size(const struct audio_hw_device *dev,
 {
     size_t s = IN_PERIOD_SIZE_DEFAULT *
                     audio_bytes_per_sample(config->format) *
-                    popcount(config->channel_mask);
+                    audio_channel_count_from_in_mask(config->channel_mask);
 
     if (s > IN_PCM_BUFFER_SIZE_DEFAULT) {
         s = IN_PCM_BUFFER_SIZE_DEFAULT;
