@@ -2589,7 +2589,6 @@ static int parse_config_file(struct config_mgr *cm, const char *file_name)
     ret = open_config_file(state,file_name);
     do {
         if (ret == 0) {
-            ret = -ENOMEM;
             if (state->init_probe.new_xml_file != NULL) {
                 free((void*)state->init_probe.file);
                 state->init_probe.file = NULL;
