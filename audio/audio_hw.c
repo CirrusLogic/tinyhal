@@ -247,7 +247,7 @@ static uint32_t in_get_sample_rate(const struct audio_stream *stream);
 
 static int stream_invoke_usecases(const struct hw_stream *stream, const char *kvpairs)
 {
-    char *parms = strdup(kvpairs);
+    char *parms;
     char *p, *temp;
     char *pval;
     char value[32];
@@ -255,6 +255,7 @@ static int stream_invoke_usecases(const struct hw_stream *stream, const char *kv
 
     ALOGV("+stream_invoke_usecases(%p) '%s'", stream, kvpairs);
 
+    parms = strdup(kvpairs);
     if (!parms) {
         return -ENOMEM;
     }
@@ -280,6 +281,8 @@ static int stream_invoke_usecases(const struct hw_stream *stream, const char *kv
             p = strtok_r(NULL, ";", &temp);
         }
     }
+
+    free(parms);
 
     return ret;
 }
