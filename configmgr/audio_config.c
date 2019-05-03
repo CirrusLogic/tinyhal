@@ -1554,12 +1554,6 @@ static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
     uint32_t v;
     int ret;
 
-    str = strdup(val_str);
-    if (!str) {
-        ret = -ENOMEM;
-        goto fail;
-    }
-
     if (vnum > BYTE_ARRAY_MAX_SIZE) {
         ALOGE("Byte array control too big(%u)", vnum);
         return -EINVAL;
@@ -1567,8 +1561,12 @@ static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
 
     if (c->index >= vnum) {
         ALOGE("Control index out of range(%u>%u)", c->index, vnum);
-        ret = -EINVAL;
-        goto fail;
+        return -EINVAL;
+    }
+
+    str = strdup(val_str);
+    if (!str) {
+        return -ENOMEM;
     }
 
     /* get number of entries in value string by counting commas */
