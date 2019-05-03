@@ -1577,6 +1577,12 @@ static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
         p = strtok(NULL, ",");
     }
 
+    if (count == 0) {
+        ALOGE("No values for byte array");
+        ret = -EINVAL;
+        goto fail;
+    }
+
     if ((c->index + count) > vnum) {
         ALOGE("Array overflows control (%u+%u > %u)",
                     c->index, count, vnum);
