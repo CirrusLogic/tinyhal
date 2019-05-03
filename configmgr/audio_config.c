@@ -1312,7 +1312,11 @@ static struct scase* new_case(struct dyn_array *array, const char *name)
 
     sc = &array->cases[array->count - 1];
     sc->ctl_array.elem_size = sizeof(struct ctl);
-    sc->name = name;
+    sc->name = strdup(name);
+    if (!sc->name) {
+        return NULL;
+    }
+
     return sc;
 }
 
@@ -1336,7 +1340,11 @@ static struct usecase* new_usecase(struct dyn_array *array, const char *name)
 
     puc = &array->usecases[array->count - 1];
     puc->case_array.elem_size = sizeof(struct scase);
-    puc->name = name;
+    puc->name = strdup(name);
+    if (!puc->name) {
+        return NULL;
+    }
+
     return puc;
 }
 
@@ -1412,7 +1420,11 @@ static int new_name(struct dyn_array *array, const char* name)
     }
 
     i = array->count - 1;
-    array->path_names[i] = name;
+    array->path_names[i] = strdup(name);
+    if (!array->path_names[i]) {
+        return -ENOMEM;
+    }
+
     return i;
 }
 
@@ -1452,7 +1464,6 @@ static int add_path_name(struct parse_state *state, const char *name)
 {
     struct dyn_array *array = &state->path_name_array;
     int index;
-    const char *s;
 
     /* Check if already in array */
     index = find_path_name(state, name);
@@ -1460,12 +1471,7 @@ static int add_path_name(struct parse_state *state, const char *name)
         return index;   /* already exists */
     }
 
-    s = strdup(name);
-    if (s == NULL) {
-        return -ENOMEM;
-    }
-
-    index = new_name(array, s);
+    index = new_name(array, name);
     if (index < 0) {
         return -ENOMEM;
     }
@@ -1872,14 +1878,10 @@ static int parse_path_end(struct parse_state *state)
 
 static int parse_case_start(struct parse_state *state)
 {
-    const char *name = strdup(state->attribs.value[e_attrib_name]);
+    const char *name = state->attribs.value[e_attrib_name];
     struct usecase *puc = state->current.usecase;
     struct dyn_array *array = &puc->case_array;
     struct scase *sc;
-
-    if (!name) {
-        return -ENOMEM;
-    }
 
     sc = new_case(array, name);
     if (sc == NULL) {
@@ -1902,13 +1904,9 @@ static int parse_case_end(struct parse_state *state)
 
 static int parse_usecase_start(struct parse_state *state)
 {
-    const char *name = strdup(state->attribs.value[e_attrib_name]);
+    const char *name = state->attribs.value[e_attrib_name];
     struct dyn_array *array = &state->current.stream->usecase_array;
     struct usecase *puc;
-
-    if (!name) {
-        return -ENOMEM;
-    }
 
     puc = new_usecase(array, name);
     if (puc == NULL) {
