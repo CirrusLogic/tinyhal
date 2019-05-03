@@ -613,8 +613,6 @@ static unsigned int out_pcm_cfg_channel_count(struct stream_out_pcm *out)
 /* must be called with hw device and output stream mutexes locked */
 static void do_out_pcm_standby(struct stream_out_pcm *out)
 {
-    struct audio_device *adev = out->common.dev;
-
     ALOGV("+do_out_standby(%p)", out);
 
     if (!out->common.standby) {
@@ -640,7 +638,6 @@ static void out_pcm_fill_params(struct stream_out_pcm *out,
 /* must be called with hw device and output stream mutexes locked */
 static int start_output_pcm(struct stream_out_pcm *out)
 {
-    struct audio_device *adev = out->common.dev;
     int ret;
 
     struct pcm_config config = {
@@ -691,7 +688,6 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream, const void* buffer
 
     int ret = 0;
     struct stream_out_pcm *out = (struct stream_out_pcm *)stream;
-    struct audio_device *adev = out->common.dev;
 
     /* Check that we are routed to something. Android can send routing
      * commands that tell us to disconnect from everything and in that
@@ -1331,7 +1327,6 @@ static void do_in_realtime_delay(struct stream_in_common *in, size_t bytes)
 static void do_close_in_common(struct audio_stream *stream)
 {
     struct stream_in_common *in = (struct stream_in_common *)stream;
-    struct audio_device *adev = in->dev;
 
     in->stream.common.standby(stream);
 
@@ -1439,15 +1434,12 @@ static void release_buffer(struct resampler_buffer_provider *buffer_provider,
                                   struct resampler_buffer* buffer)
 {
     struct in_resampler *rsp;
-    struct stream_in_pcm *in;
 
     if (buffer_provider == NULL || buffer == NULL)
         return;
 
     rsp = (struct in_resampler *)((char *)buffer_provider -
                                    offsetof(struct in_resampler, buf_provider));
-    in = (struct stream_in_pcm *)((char *)rsp -
-                                   offsetof(struct stream_in_pcm, resampler));
 
     rsp->frames_in -= buffer->frame_count;
 }
@@ -1560,8 +1552,6 @@ static unsigned int in_pcm_cfg_channel_count(struct stream_in_pcm *in)
 /* must be called with hw device and input stream mutexes locked */
 static void do_in_pcm_standby(struct stream_in_pcm *in)
 {
-    struct audio_device *adev = in->common.dev;
-
     ALOGV("+do_in_pcm_standby");
 
     if (!in->common.standby) {
@@ -1673,7 +1663,6 @@ static int start_pcm_input_stream(struct stream_in_pcm *in)
 static int change_input_source_locked(struct stream_in_pcm *in, const char *value,
                                 uint32_t devices, bool *was_changed)
 {
-    struct audio_device *adev = in->common.dev;
     struct audio_config config;
     const char *stream_name;
     const struct hw_stream *hw = NULL;
@@ -1751,7 +1740,6 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void* buffer,
 {
     int ret = 0;
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
-    struct audio_device *adev = in->common.dev;
     size_t frames_rq = bytes / in->common.frame_size;
 
     ALOGV("+do_in_pcm_read %zu", bytes);
@@ -1837,7 +1825,6 @@ static ssize_t in_pcm_read(struct audio_stream_in *stream, void* buffer,
 static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpairs)
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
-    struct audio_device *adev = in->common.dev;
     struct str_parms *parms;
     char value[32];
     uint32_t new_routing = 0;
@@ -1883,7 +1870,6 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
             ALOGV("Apply routing=0x%x to input stream", new_routing);
             apply_route(in->common.hw, new_routing);
         }
-        ret = 0;
     }
 
     stream_invoke_usecases(in->common.hw, kvpairs);
