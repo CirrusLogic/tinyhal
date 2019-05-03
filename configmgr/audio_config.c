@@ -2098,13 +2098,6 @@ static int parse_stream_start(struct parse_state *state)
     struct stream *s;
 
     if (name != NULL) {
-        name = strdup(name);
-        if (name == NULL) {
-            return -ENOMEM;
-        }
-    }
-
-    if (name != NULL) {
         if (find_named_stream(state->cm, name) != NULL) {
             ALOGE("Stream '%s' already declared", name);
             return -EINVAL;
@@ -2183,7 +2176,12 @@ static int parse_stream_start(struct parse_state *state)
         return -EINVAL;
     }
 
-    s->name = name;
+    if (name != NULL) {
+        s->name = strdup(name);
+        if (!s->name) {
+            return -ENOMEM;
+        }
+    }
     s->info.card_number = card;
     s->info.device_number = device;
     s->max_ref_count = maxref;
