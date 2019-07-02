@@ -51,7 +51,7 @@
 #include <math.h>
 
 #ifdef ENABLE_STHAL_STREAMS
-#include <scchal/scc_audio.h>
+#include <vendor/cirrus/scchal/scc_audio.h>
 #endif
 
 /* Kit Kit doesn't change the HAL API version despite the API changing to
