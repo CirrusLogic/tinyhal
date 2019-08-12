@@ -1937,7 +1937,8 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     } out;
     int ret;
 
-    ALOGV("+adev_open_output_stream");
+    ALOGV("+adev_open_output_stream: format %d, channel_mask=%04x, sample_rate %u flags 0x%x\n",
+          config->format, config->channel_mask, config->sample_rate, flags);
 
     devices &= AUDIO_DEVICE_OUT_ALL;
     const struct hw_stream *hw = get_stream(adev->cm, devices, flags, config);
