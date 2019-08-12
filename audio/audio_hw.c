@@ -1628,7 +1628,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
     config.rate = in_pcm_cfg_rate(in),
     config.period_size = in_pcm_cfg_period_size(in),
     config.period_count = in_pcm_cfg_period_count(in),
-    config.format = PCM_FORMAT_S16_LE,
+    config.format = pcm_format_from_android_format(in->common.format),
     config.start_threshold = 0;
 
     in->pcm = pcm_open(in->common.hw->card_number,
