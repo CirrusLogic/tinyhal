@@ -627,6 +627,27 @@ static void do_out_pcm_standby(struct stream_out_pcm *out)
     ALOGV("-do_out_standby(%p)", out);
 }
 
+static int pcm_format_from_android_format(audio_format_t format)
+{
+    switch(format)
+    {
+    case AUDIO_FORMAT_PCM_SUB_16_BIT:
+        return PCM_FORMAT_S16_LE;
+    case AUDIO_FORMAT_PCM_SUB_8_BIT:
+        return PCM_FORMAT_S8;
+    case AUDIO_FORMAT_PCM_SUB_32_BIT:
+        return PCM_FORMAT_S32_LE;
+    case AUDIO_FORMAT_PCM_SUB_8_24_BIT:
+        return PCM_FORMAT_S24_LE;
+    case AUDIO_FORMAT_PCM_SUB_FLOAT:
+        return PCM_FORMAT_INVALID;
+    case AUDIO_FORMAT_PCM_SUB_24_BIT_PACKED:
+        return PCM_FORMAT_S24_3LE;
+    default:
+        return PCM_FORMAT_INVALID;
+    }
+}
+
 static void out_pcm_fill_params(struct stream_out_pcm *out,
                                 const struct pcm_config *config )
 {
@@ -648,7 +669,7 @@ static int start_output_pcm(struct stream_out_pcm *out)
         .rate = out_pcm_cfg_rate(out),
         .period_size = out_pcm_cfg_period_size(out),
         .period_count = out_pcm_cfg_period_count(out),
-        .format = PCM_FORMAT_S16_LE,
+        .format = pcm_format_from_android_format(out->common.format),
         .start_threshold = 0,
         .stop_threshold = 0,
         .silence_threshold = 0
