@@ -712,16 +712,16 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream, const void* buffer
     }
 
     ret = pcm_write(out->pcm, buffer, bytes);
-    if (ret >= 0) {
-        ret = bytes;
-    }
+    ALOGV_IF(ret < 0, "out_pcm_write: pcm_write failed: %d", ret);
 
 exit:
     pthread_mutex_unlock(&out->common.lock);
 
-    ALOGV("-out_pcm_write(%p) r=%u", stream, ret);
+    ALOGV("-out_pcm_write(%p)", stream);
 
-    return ret;
+    // AudioFlinger doesn't like errors so always pretend we wrote all the bytes
+
+    return bytes;
 }
 
 static int out_pcm_get_render_position(const struct audio_stream_out *stream,
