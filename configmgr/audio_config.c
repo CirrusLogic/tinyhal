@@ -115,6 +115,7 @@ struct ctl {
     uint32_t            array_count;
     enum mixer_ctl_type type;
     uint8_t             *buffer;
+    const char          *data_file_name;
 
     /* If the control couldn't be opened during boot the value will hold
      * a pointer to the original value string from the config file and will
@@ -336,7 +337,9 @@ struct parse_state {
 
 
 static int string_to_uint(uint32_t *result, const char *str);
-static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl);
+static int get_value_from_file(struct ctl *c, uint32_t vnum);
+static int make_byte_work_buffer(struct ctl *pctl, uint32_t buffer_size);
+static int make_byte_array(struct ctl *c, uint32_t vnum);
 static const char *debug_device_to_name(uint32_t device);
 
 /*********************************************************************
@@ -419,11 +422,11 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
             if (pctl->index == INVALID_CTL_INDEX) {
                 pctl->index = 0;
             }
-            ret = make_byte_array(pctl, ctl);
+            const unsigned int vnum = mixer_ctl_get_num_values(ctl);
+            ret = make_byte_work_buffer(pctl, vnum);
             if (ret != 0) {
                 return ret;
             }
-            ALOGV("Added ctl '%s' byte array len %d", pctl->name, pctl->array_count);
             break;
 
         case MIXER_CTL_TYPE_BOOL:
@@ -1021,8 +1024,9 @@ static int parse_set_start(struct parse_state *state);
 static const struct parse_element elem_table[e_elem_count] = {
     [e_elem_ctl] =    {
         .name = "ctl",
-        .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_val) | BIT(e_attrib_index),
-        .required_attribs = BIT(e_attrib_name) | BIT(e_attrib_val),
+        .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_val)
+                            | BIT(e_attrib_index) | BIT(e_attrib_file),
+        .required_attribs = BIT(e_attrib_name),
         .valid_subelem = 0,
         .start_fn = parse_ctl_start,
         .end_fn = NULL
@@ -1546,10 +1550,75 @@ static int attrib_to_uint(uint32_t *result, struct parse_state *state,
     return string_to_uint(result, str);
 }
 
-static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
+static int make_byte_work_buffer(struct ctl *c,
+                                 uint32_t buffer_size)
+{
+    int ret = 0;
+
+    c->buffer = malloc(buffer_size);
+    if (!c->buffer) {
+        ALOGE("Failed to allocate work buffer");
+        return -ENOMEM;
+    }
+
+    if (c->data_file_name) {
+        ret = get_value_from_file(c, buffer_size);
+    } else {
+        ret = make_byte_array(c, buffer_size);
+    }
+    if (ret != 0) {
+        return ret;
+    }
+
+    ALOGV("Added ctl '%s' byte array len %d", c->name, c->array_count);
+    return 0;
+}
+
+static int get_value_from_file(struct ctl *c, uint32_t vnum)
+{
+    uint32_t data_size;
+    FILE *fp;
+
+    fp = fopen(c->data_file_name, "rb");
+    if (fp == 0) {
+        ALOGE("Failed to open %s", c->data_file_name);
+        return -EIO;
+    }
+    fseek(fp, 0L, SEEK_END);
+    data_size = (uint32_t) ftell(fp);
+    rewind(fp);
+
+    if (data_size > vnum) {
+        ALOGE("Data size %d exceeded max control size, the first %d bytes are kept",
+               data_size, vnum);
+        c->array_count = vnum;
+    } else {
+        c->array_count = data_size;
+    }
+
+    uint8_t *buffer = malloc(c->array_count);
+    if (!buffer) {
+        ALOGE("Failed to allocate read buffer");
+        fclose(fp);
+        return -ENOMEM;
+    }
+
+    int read = fread((void *)buffer, 1, c->array_count, fp);
+    fclose(fp);
+    if (read < (int)c->array_count) {
+        ALOGE("Failed to get control value: %d", -errno);
+        free(buffer);
+        return -EIO;
+    }
+
+    c->value.data = buffer;
+
+    return 0;
+}
+
+static int make_byte_array(struct ctl *c, uint32_t vnum)
 {
     const char *val_str = c->value.string;
-    const unsigned int vnum = mixer_ctl_get_num_values(ctl);
     char *str;
     uint8_t *pdatablock = NULL;
     uint8_t *bytes;
@@ -1587,10 +1656,6 @@ static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
         goto fail;
     }
     c->array_count = count;
-
-    if (c->array_count < vnum) {
-        c->buffer = malloc(vnum);
-    }
 
     pdatablock = malloc(count);
     if (!pdatablock) {
@@ -1689,10 +1754,19 @@ static int parse_ctl_start(struct parse_state *state)
         goto fail;
     }
 
-    c->value.string = strdup(state->attribs.value[e_attrib_val]);
-    if(!c->value.string) {
-        ret = -ENOMEM;
-        goto fail;
+    const char *filename = state->attribs.value[e_attrib_file];
+    if (filename) {
+        c->data_file_name = strdup(filename);
+        if (!c->data_file_name) {
+            ret = -ENOMEM;
+            goto fail;
+        }
+    } else {
+        c->value.string = strdup(state->attribs.value[e_attrib_val]);
+        if(!c->value.string) {
+            ret = -ENOMEM;
+            goto fail;
+        }
     }
 
     ret = ctl_open(state->cm, c);
@@ -2617,7 +2691,11 @@ static void print_ctls(const struct config_mgr *cm)
                     ALOGV("int: %d", c->value.uinteger);
                     break;
                 case MIXER_CTL_TYPE_BYTE:
-                    ALOGV("byte[0]: %d", c->value.data[0]);
+                    if (c->data_file_name) {
+                        ALOGV("file: %s", c->data_file_name);
+                    } else {
+                        ALOGV("byte[0]: %d", c->value.data[0]);
+                    }
                     break;
                 default:
                     ALOGV("string: \"%s\"", c->value.string);
@@ -2786,6 +2864,7 @@ void free_audio_config( struct config_mgr *cm )
                     case MIXER_CTL_TYPE_BYTE:
                         free((void *)c->value.data);
                         free((void *)c->buffer);
+                        free((void *)c->data_file_name);
                         break;
                     default:
                         free((void *)c->value.string);
