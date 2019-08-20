@@ -2102,8 +2102,8 @@ static int parse_stream_start(struct parse_state *state)
     const char *name = state->attribs.value[e_attrib_name];
     bool out;
     bool global;
-    uint32_t card = -1;    /* avoid false unassigned-value warnings */
-    uint32_t device = -1;  /* avoid false unassigned-value warnings */
+    uint32_t card = 0;    /* avoid false unassigned-value warnings */
+    uint32_t device = 0;  /* avoid false unassigned-value warnings */
     uint32_t maxref = INT_MAX;
     struct stream *s;
 
