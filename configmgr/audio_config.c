@@ -2594,21 +2594,26 @@ static int parse_config_file(struct config_mgr *cm, const char *file_name)
     }
     ret = open_config_file(state,file_name);
     do {
-        if (ret == 0) {
-            if (state->init_probe.new_xml_file != NULL) {
-                free((void*)state->init_probe.file);
-                state->init_probe.file = NULL;
-                XML_ParserReset(state->parser, NULL);
-                free((void*)state->init_probe.new_xml_file);
-                state->init_probe.new_xml_file = NULL;
-            }
-
-            XML_SetUserData(state->parser, state);
-            XML_SetElementHandler(state->parser, parse_section_start, parse_section_end);
-            ret = do_parse(state);
-        } else {
+        if (ret != 0) {
             ALOGE("Error while opening XML file\n");
             ret = -ENOMEM;
+            break;
+        }
+
+        if (state->init_probe.new_xml_file != NULL) {
+            free((void*)state->init_probe.file);
+            state->init_probe.file = NULL;
+            XML_ParserReset(state->parser, NULL);
+            free((void*)state->init_probe.new_xml_file);
+            state->init_probe.new_xml_file = NULL;
+        }
+
+        XML_SetUserData(state->parser, state);
+        XML_SetElementHandler(state->parser, parse_section_start, parse_section_end);
+        ret = do_parse(state);
+
+        if (ret != 0) {
+            ALOGE("Error while parsing XML file\n");
             break;
         }
 
