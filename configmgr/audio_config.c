@@ -56,9 +56,6 @@ typedef struct effect_interface_s **effect_handle_t;
 /* The dynamic arrays are extended in multiples of this number of objects */
 #define DYN_ARRAY_GRANULE 16
 
-/* Largest byte array control we handle */
-#define BYTE_ARRAY_MAX_SIZE 512
-
 #define INVALID_CTL_INDEX 0xFFFFFFFFUL
 
 #ifndef ETC_PATH
@@ -116,6 +113,7 @@ struct ctl {
     uint32_t            index;
     uint32_t            array_count;
     enum mixer_ctl_type type;
+    uint8_t             *buffer;
 
     /* If the control couldn't be opened during boot the value will hold
      * a pointer to the original value string from the config file and will
@@ -467,7 +465,6 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
     unsigned int vnum;
     unsigned int value_count;
     int err = 0;
-    uint8_t ctl_data[BYTE_ARRAY_MAX_SIZE];
 
     ALOGV("+apply_ctls_l");
 
@@ -515,10 +512,10 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
                     err = mixer_ctl_set_array(ctl, pctl->value.data, pctl->array_count);
                 } else {
                     /* read-modify-write */
-                    err = mixer_ctl_get_array(ctl, ctl_data, vnum);
+                    err = mixer_ctl_get_array(ctl, pctl->buffer, vnum);
                     if (err >= 0) {
-                        memcpy(&ctl_data[pctl->index], pctl->value.data, pctl->array_count);
-                        err = mixer_ctl_set_array(ctl, ctl_data, vnum);
+                        memcpy(&pctl->buffer[pctl->index], pctl->value.data, pctl->array_count);
+                        err = mixer_ctl_set_array(ctl, pctl->buffer, vnum);
                     }
                 }
 
@@ -1560,11 +1557,6 @@ static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
     uint32_t v;
     int ret;
 
-    if (vnum > BYTE_ARRAY_MAX_SIZE) {
-        ALOGE("Byte array control too big(%u)", vnum);
-        return -EINVAL;
-    }
-
     if (c->index >= vnum) {
         ALOGE("Control index out of range(%u>%u)", c->index, vnum);
         return -EINVAL;
@@ -1594,6 +1586,10 @@ static int make_byte_array(struct ctl *c, struct mixer_ctl *ctl)
         goto fail;
     }
     c->array_count = count;
+
+    if (c->array_count < vnum) {
+        c->buffer = malloc(vnum);
+    }
 
     pdatablock = malloc(count);
     if (!pdatablock) {
@@ -2722,6 +2718,7 @@ void free_audio_config( struct config_mgr *cm )
                      */
                     case MIXER_CTL_TYPE_BYTE:
                         free((void *)c->value.data);
+                        free((void *)c->buffer);
                         break;
                     default:
                         free((void *)c->value.string);
