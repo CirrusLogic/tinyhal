@@ -25,6 +25,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <ctype.h>
+#include <dirent.h>
 #ifdef ANDROID
 #include <cutils/log.h>
 #include <cutils/compiler.h>
@@ -1126,7 +1127,7 @@ static const struct parse_element elem_table[e_elem_count] = {
 
     [e_elem_mixer] =    {
         .name = "mixer",
-        .valid_attribs = BIT(e_attrib_card),
+        .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_card),
         .required_attribs = 0,
         .valid_subelem = BIT(e_elem_init),
         .start_fn = parse_mixer_start,
@@ -2264,13 +2265,74 @@ static int parse_device_end(struct parse_state *state)
     return 0;
 }
 
+static int get_card_name_for_id(unsigned int id, char* name, int len)
+{
+    char cardInfoFile[32];
+    FILE *fp;
+    int ret = 0;
+    snprintf(cardInfoFile, sizeof(cardInfoFile), "/proc/asound/card%u/id", id);
+
+    fp = fopen(cardInfoFile, "r");
+    if (fp == NULL) {
+        ALOGE("Failed to open file: %s", cardInfoFile);
+        return -EINVAL;
+    }
+
+    if (fgets(name, len, fp) == NULL) {
+        ALOGE("Failed to read name from file: %s", cardInfoFile);
+        ret = -EINVAL;
+        goto read_fail;
+    }
+    //Only return first line of file, without new lines.
+    name[strcspn(name, "\n")] = 0;
+read_fail:
+    fclose(fp);
+    return ret;
+}
+
+static int get_card_id_for_name(const char* name, uint32_t *id)
+{
+    if (name == NULL) {
+        return -EINVAL;
+    }
+
+    struct DIR* dir;
+    struct dirent* entry;
+    int ret = -EINVAL;
+
+    dir = opendir("/proc/asound");
+
+    if (dir != NULL) {
+        while ((entry = readdir(dir)) != NULL) {
+            unsigned int t_id;
+            if (sscanf(entry->d_name, "card%u" , &t_id)) {
+                char t_name[128];
+                if (get_card_name_for_id(t_id, t_name, sizeof(t_name)) == 0 &&
+                        strcmp(t_name, name) == 0) {
+                    ALOGV("Found card %u with name %s", t_id, name);
+                    *id = t_id;
+                    ret = 0;
+                    break;
+                }
+            }
+        }
+        closedir(dir);
+    }
+    return ret;
+}
+
 static int parse_mixer_start(struct parse_state *state)
 {
     uint32_t card = MIXER_CARD_DEFAULT;
 
     ALOGV("parse_mixer_start");
-
-    if (attrib_to_uint(&card, state, e_attrib_card) == -EINVAL) {
+    if (attrib_to_uint(&card, state, e_attrib_card) == 0) {
+        if (state->attribs.value[e_attrib_name] != NULL) {
+            ALOGE("Mixer must be configured by only one of 'card' OR 'name'. Both provided.");
+            return -EINVAL;
+        }
+    } else if (get_card_id_for_name(state->attribs.value[e_attrib_name],
+                                    &card) != 0) {
         return -EINVAL;
     }
 

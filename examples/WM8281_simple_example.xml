@@ -23,7 +23,7 @@
 -->
 
 <audiohal>
-	<mixer card="0">
+	<mixer name="LochnagarAudio">
 		<init>
 			<!-- setup standard HPOUT volume -->
 			<ctl name="HPOUT1 Digital Volume" val="100" />
