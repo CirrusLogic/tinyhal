@@ -2658,6 +2658,11 @@ struct config_mgr *init_audio_config(const char *config_file_name)
     return mgr;
 }
 
+struct mixer *get_mixer( const struct config_mgr *cm )
+{
+    return cm->mixer;
+}
+
 static void free_usecases( struct stream *stream )
 {
     struct usecase *puc = stream->usecase_array.usecases;

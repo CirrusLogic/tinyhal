@@ -28,6 +28,7 @@
 extern "C" {
 #endif
 
+struct mixer;
 struct mixer_ctl;
 struct config_mgr;
 struct audio_config;
@@ -113,6 +114,9 @@ struct config_mgr *init_audio_config(const char *config_file_name);
 
 /** Delete audio config layer */
 void free_audio_config( struct config_mgr *cm );
+
+/** Get libtinyalsa mixer backing this config_mgr instance */
+struct mixer *get_mixer( const struct config_mgr *cm );
 
 /** Get list of all supported devices */
 uint32_t get_supported_devices( struct config_mgr *cm );
