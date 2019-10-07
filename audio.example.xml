@@ -34,9 +34,17 @@ property ro.product.device
     </codec_probe>
 
     <!-- mixer element _must_ appear before any of the other definitions.
-    The 'card' attribute is optional and sets the ALSA card number of the mixer
-    device - if not given it defaults to 0 -->
+    The ALSA card can be identified either by card number or by name.
 
+    Connect to ALSA card 0:
+        <mixer card="0">
+
+    Connect to ALSA card called "FooSound"
+        <mixer name="FooSound">
+
+    When the card is given by name, TinyHAL searches all /proc/asound/card*/id
+    files for a matching name.
+    -->
         <mixer card="0">
 
         <!-- init element lists control settings required to initialize the
