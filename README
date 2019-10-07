@@ -1,7 +1,9 @@
-================================
+======================================================================
 TINYHAL README
-Copyright 2015 Cirrus Logic Inc.
-================================
+Copyright (C) 2015, 2019 Cirrus Logic, Inc. and
+                         Cirrus Logic International Semiconductor Ltd.
+                         All rights reserved.
+======================================================================
 
 TinyHAL is an audio HAL for Android systems aimed at providing an improved
 basis for doing audio system integration in the Android application layer.
@@ -181,11 +183,16 @@ Stream closed=>
 ===========================
 Auto-detecting the hardware
 ===========================
-To allow building a standard system image that can be used on multiple hardware
-TinyHAL includes an ability to auto-select which configuration file to load.
-This is based on having a file or pseudo-file that contains as its first line
-a string identifying the hardware. TinyHAL doesn't care how this file is
-generated, the most typical use is to point it at the pseudo-file
+The simplest mode of auto-detection is to specify the ALSA card by name instead
+of by number. Tinyhal will search all /proc/asound/card*/id files for one that
+matches the given name. This abstracts from the actual card number, which isn't
+guaranteed to be the same between boots or across different devices using the
+same ALSA sound card.
+
+A more sophisticated mechanism is to auto-select which configuration file to
+load. This is based on having a file or pseudo-file that contains as its first
+line a string identifying the hardware. TinyHAL doesn't care how this file is
+generated. A typical use is to point it at the pseudo-file
 /sys/class/sound/card0/id, which contains a single line giving the name of
 the audio card (as defined by the kernel audio card driver or codec driver.)
 But it could just as well be any readable pseudo-file, or a real file created
@@ -201,5 +208,3 @@ XML file and instead start processing the alternate XML file. If none of the
 strings match, TinyHAL will continue to process the current XML file.
 
 The syntax for this is shown in audio.example.xml (see the codec_probe block)
-
-
