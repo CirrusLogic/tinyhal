@@ -57,6 +57,11 @@ LOCAL_PROPRIETARY_MODULE := true
 LOCAL_CFLAGS += -DETC_PATH=\"/vendor/etc/\"
 endif
 
+ifeq ($(NATIVE_COVERAGE),true)
+LOCAL_NATIVE_COVERAGE := true
+LOCAL_C_INCLUDES += vendor/cirrus/coverage
+LOCAL_CFLAGS += -DENABLE_COVERAGE=1
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 

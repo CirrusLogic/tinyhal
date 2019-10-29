@@ -43,6 +43,10 @@ typedef struct effect_interface_s **effect_handle_t;
 #include <hardware/audio.h>
 #endif
 
+#ifdef ENABLE_COVERAGE
+#include <coverage.h>
+#endif
+
 #include <tinyalsa/asoundlib.h>
 #include <expat.h>
 
@@ -2784,6 +2788,10 @@ struct config_mgr *init_audio_config(const char *config_file_name)
     int ret;
 
     struct config_mgr* mgr = new_config_mgr();
+
+#ifdef ENABLE_COVERAGE
+    enableCoverageSignal();
+#endif
 
     ret = parse_config_file(mgr, config_file_name);
     if (ret != 0) {
