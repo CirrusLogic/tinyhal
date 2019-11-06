@@ -92,6 +92,10 @@ TINYALSA_NO_ADD_NEW_CTRLS
 TINYALSA_NO_CTL_GET_ID
     define if your version of tinyalsa does not have mixer_ctl_get_id()
 
+TINYCOMPRESS_TSTAMP_IS_LONG
+    define if your version of tinycompress takes an unsigned long* argument to
+    compress_get_tstamp()
+
 =================
 HOW TINYHAL WORKS
 =================
