@@ -47,9 +47,28 @@ property ro.product.device
     -->
         <mixer card="0">
 
-        <!-- init element lists control settings required to initialize the
+        <!-- A pre_init element lists control settings that will cause new ALSA
+        controls to be added. Typically this is used to load firmware into a
+        DSP, causing new ALSA controls to be added for controls exported by the
+        firmware. After processing a pre_init element the ALSA controls are
+        reloaded to pick up any new controls. Other elements in the
+        configuration can then use those controls.
+
+        Multiple pre_init elements can be used, so that a pre_init can depend
+        on controls populated by a previous pre_init.
+
+        All pre_init elements must appear before the init element.
+        -->
+
+        <pre_init>
+            <!-- A list of ctl elements - see description of init element -->
+            <ctl name="DSP1 Preload Switch" val="1" />
+        </pre_init>
+
+        <!-- An init element lists control settings required to initialize the
         hardware and driver. These settings are applied only once when the
-        library is first loaded during boot -->
+        library is first loaded during boot.
+        -->
 
         <init>
 
