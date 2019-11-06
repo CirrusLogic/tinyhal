@@ -236,6 +236,7 @@ enum element_index {
     e_elem_set,
     e_elem_stream_ctl,
     e_elem_init,
+    e_elem_pre_init,
     e_elem_mixer,
     e_elem_audiohal,
     e_elem_codec_probe,
@@ -303,7 +304,7 @@ struct parse_state {
     char                read_buf[256];
     int                 parse_error; /* value >0 aborts without error */
     int                 error_line;
-    int                 mixer_card_number;
+    unsigned int        mixer_card_number;
 
     struct {
         const char      *value[e_attrib_count];
@@ -327,10 +328,12 @@ struct parse_state {
     /* This array hold a de-duplicated list of all path names encountered */
     struct dyn_array    path_name_array;
 
-    /* This is a temporary path object used to collect the initial
-     * mixer setup control settings under <mixer><init>
+    /* These are temporary path objects used to collect the initial
+     * mixer setup control settings under <pre_init> and <init>
      */
+    struct path         preinit_path;
     struct path         init_path;
+
     struct codec_probe  init_probe;
 
     struct {
@@ -1004,6 +1007,7 @@ int get_stream_constant_uint32(const struct hw_stream *stream,
  * - Paths must be defined before they can be referred to
  *********************************************************************/
 static int parse_mixer_start(struct parse_state *state);
+static int parse_mixer_end(struct parse_state *state);
 static int parse_device_start(struct parse_state *state);
 static int parse_device_end(struct parse_state *state);
 static int parse_stream_start(struct parse_state *state);
@@ -1018,6 +1022,8 @@ static int parse_usecase_end(struct parse_state *state);
 static int parse_enable_start(struct parse_state *state);
 static int parse_disable_start(struct parse_state *state);
 static int parse_ctl_start(struct parse_state *state);
+static int parse_preinit_start(struct parse_state *state);
+static int parse_preinit_end(struct parse_state *state);
 static int parse_init_start(struct parse_state *state);
 static int parse_init_end(struct parse_state *state);
 static int parse_codec_probe_start(struct parse_state *state);
@@ -1133,13 +1139,22 @@ static const struct parse_element elem_table[e_elem_count] = {
         .end_fn = parse_init_end
         },
 
+    [e_elem_pre_init] =     {
+        .name = "pre_init",
+        .valid_attribs = 0,
+        .required_attribs = 0,
+        .valid_subelem = BIT(e_elem_ctl),
+        .start_fn = parse_preinit_start,
+        .end_fn = parse_preinit_end
+        },
+
     [e_elem_mixer] =    {
         .name = "mixer",
         .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_card),
         .required_attribs = 0,
-        .valid_subelem = BIT(e_elem_init),
+        .valid_subelem = BIT(e_elem_pre_init) | BIT(e_elem_init),
         .start_fn = parse_mixer_start,
-        .end_fn = NULL
+        .end_fn = parse_mixer_end
         },
 
     [e_elem_audiohal] =    {
@@ -1815,6 +1830,10 @@ static int parse_init_start(struct parse_state *state)
      */
     state->current.path = &state->init_path;
 
+    /* Don't allow <pre_init> or another <init> to follow this */
+    state->stack.entry[state->stack.index - 1].valid_subelem &=
+        ~(BIT(e_elem_pre_init) | BIT(e_elem_init));
+
     ALOGV("Added init path");
     return 0;
 }
@@ -1823,6 +1842,39 @@ static int parse_init_end(struct parse_state *state)
 {
     compress_path(state->current.path);
     state->current.path = NULL;
+    return 0;
+}
+
+static int parse_preinit_start(struct parse_state *state)
+{
+    /* This is handled the same way as <init> section except that
+     * when we get the end tag we immediately process the settings
+     * before parsing the rest of the config.
+     */
+    state->current.path = &state->preinit_path;
+
+    ALOGV("Started <pre_init>");
+    return 0;
+}
+
+static int parse_preinit_end(struct parse_state *state)
+{
+    ALOGV("Applying <pre_init>");
+
+    state->current.path = NULL;
+
+    /* Execute the pre_init commands now */
+    apply_path_l(state->cm, &state->preinit_path);
+
+    /* Re-open tinyalsa to pick up any controls added by the pre_init */
+    mixer_close(state->cm->mixer);
+    state->cm->mixer = mixer_open(state->mixer_card_number);
+
+    if (!state->cm->mixer) {
+        ALOGE("Failed to re-open mixer card %u", state->mixer_card_number);
+        return -EINVAL;
+    }
+
     return 0;
 }
 
@@ -2423,6 +2475,15 @@ static int parse_mixer_start(struct parse_state *state)
         return -EINVAL;
     }
 
+    state->mixer_card_number = card;
+
+    return 0;
+}
+
+static int parse_mixer_end(struct parse_state *state)
+{
+    ALOGV("parse_mixer_end");
+
     /* Now we can allow all other root elements but not another <mixer> */
     state->stack.entry[state->stack.index - 1].valid_subelem =
                                                   BIT(e_elem_device)
@@ -2618,6 +2679,7 @@ static void cleanup_parser(struct parse_state *state)
         codec_probe_free(state);
 
         dyn_array_free(&state->init_path.ctl_array);
+        dyn_array_free(&state->preinit_path.ctl_array);
 
         if (state->parser) {
             XML_ParserFree(state->parser);
@@ -2641,6 +2703,7 @@ static int init_state(struct parse_state *state)
     }
 
     state->path_name_array.elem_size = sizeof(const char *);
+    state->preinit_path.ctl_array.elem_size = sizeof(struct ctl);
     state->init_path.ctl_array.elem_size = sizeof(struct ctl);
     state->init_probe.codec_case_array.elem_size = sizeof(struct codec_case);
 
