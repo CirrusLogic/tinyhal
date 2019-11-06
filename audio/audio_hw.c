@@ -990,7 +990,7 @@ static int out_compress_get_render_position(const struct audio_stream_out *strea
                                    uint32_t *dsp_frames)
 {
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
-#ifdef TINYALSA_TSTAMP_IS_LONG
+#ifdef TINYCOMPRESS_TSTAMP_IS_LONG
     unsigned long samples;
 #else
     unsigned int samples;
