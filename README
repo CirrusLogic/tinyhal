@@ -68,20 +68,17 @@ Requires:
  - tinycompress
  - expat
 
-TinyHAL requires the upstream (mainline) versions of tinyalsa and tinycompress
-since it generally depends on new features and we submit contributions to both
-tinyalsa and tinycompress.
+TinyHAL can build against the upstream (mainline) versions of tinyalsa and
+tinycompress, or the versions shipped with Android. When building against
+the Android versions, see section below "BUILDING AGAINST OLD LIBRARY VERSIONS".
 
 The upstream versions are available from:
 tinyalsa: https://github.com/tinyalsa
 tinycompress: http://git.alsa-project.org/?p=tinycompress.git;a=summary
 
-Note: merges into the mainline tinyalsa are only done occasionally so you should
-also check the pull requests for any new patches that are needed for TinyHAL.
-
-=====================================
-BUILDING AGAINST OLD LIBRARY VERSIONS
-=====================================
+=========================================================
+BUILDING AGAINST OLD LIBRARY VERSIONS (including Android)
+=========================================================
 The version of tinyalsa and tinycompress shipped with Android source is not
 usually the latest mainline so some functionality might be missing or different.
 By default TinyHAL builds against the upstream versions.
