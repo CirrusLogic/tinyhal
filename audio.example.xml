@@ -94,13 +94,20 @@ property ro.product.device
             a string of comma-separated byte values. This can be shorter
             than the total size of the control, combined with the
             optional index attribute this allows any subset of the byte
-            array to be changed.
+            array to be changed. Alternatively, a file attribute can be given
+            instead of the val attribute, and the raw byte content of the file
+            will be copied into the control. Note that the bytes in the file
+            must already be correctly formatted for writing into the ALSA
+            control. The file is read once when TinyHAL starts and this
+            cached content is used every time this <ctl> element is invoked.
+
             -->
 
             <ctl name="DAC1 Switch" val="1" />
             <ctl name="Speaker Enable" val="0"/>
             <ctl name="Jack Enable" val="0"/>
             <ctl name="Codec Config" index="8" val="0x7f,0x54,0xaa,0xaa"/>
+            <ctl name="Filter Coefficients" file="/vendor/etc/coefficients.dat"/>
 
         </init>
         </mixer>
