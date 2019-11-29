@@ -2142,7 +2142,7 @@ static int adev_init_check(const struct audio_hw_device *dev)
 
 static int adev_set_voice_volume(struct audio_hw_device *dev, float volume)
 {
-    return -ENOSYS;
+    return 0;
 }
 
 static int adev_set_master_volume(struct audio_hw_device *dev, float volume)
