@@ -396,9 +396,75 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
     return 0;
 }
 
-static char * out_get_parameters(const struct audio_stream *stream, const char *keys)
+static void get_audio_format(struct str_parms *str_parms,
+                             audio_format_t audio_format)
 {
-    return strdup("");
+    const char *format;
+
+    switch (audio_format) {
+    case AUDIO_FORMAT_PCM:
+        format = "AUDIO_FORMAT_PCM";
+        break;
+    case AUDIO_FORMAT_MP3:
+        format = "AUDIO_FORMAT_MP3";
+        break;
+    case AUDIO_FORMAT_AMR_NB:
+        format = "AUDIO_FORMAT_AMR_NB";
+        break;
+    case AUDIO_FORMAT_AMR_WB:
+        format = "AUDIO_FORMAT_AMR_WB";
+        break;
+    case AUDIO_FORMAT_AAC:
+        format = "AUDIO_FORMAT_AAC";
+        break;
+    case AUDIO_FORMAT_HE_AAC_V1:
+        format = "AUDIO_FORMAT_HE_AAC_V1";
+        break;
+    case AUDIO_FORMAT_HE_AAC_V2:
+        format = "AUDIO_FORMAT_HE_AAC_V2";
+        break;
+    case AUDIO_FORMAT_VORBIS:
+        format = "AUDIO_FORMAT_VORBIS";
+        break;
+    case AUDIO_FORMAT_PCM_16_BIT:
+        format = "AUDIO_FORMAT_PCM_16_BIT";
+        break;
+    case AUDIO_FORMAT_PCM_8_BIT:
+        format = "AUDIO_FORMAT_PCM_8_BIT";
+        break;
+    case AUDIO_FORMAT_PCM_32_BIT:
+        format = "AUDIO_FORMAT_PCM_32_BIT";
+        break;
+    case AUDIO_FORMAT_PCM_8_24_BIT:
+        format = "AUDIO_FORMAT_PCM_8_24_BIT";
+        break;
+    default:
+        format = "AUDIO_FORMAT_INVALID";
+        break;
+    }
+
+    str_parms_add_str(str_parms, AUDIO_PARAMETER_STREAM_SUP_FORMATS, format);
+}
+
+static char* out_get_parameters(const struct audio_stream *stream, const char *keys)
+{
+    ALOGV("+out_get_parameters(%p) '%s'", stream, keys);
+
+    struct stream_out_common *out = (struct stream_out_common *)stream;
+    struct str_parms *query = str_parms_create_str(keys);
+    struct str_parms *reply = str_parms_create();
+    char *str;
+
+    if (str_parms_has_key(query, AUDIO_PARAMETER_STREAM_SUP_FORMATS)) {
+        get_audio_format(reply, out->format);
+    }
+
+    str = str_parms_to_str(reply);
+    str_parms_destroy(query);
+    str_parms_destroy(reply);
+
+    ALOGV("-out_get_parameters(%p) '%s'", stream, keys);
+    return str;
 }
 
 static uint32_t out_get_latency(const struct audio_stream_out *stream)
@@ -1275,10 +1341,26 @@ static int in_set_parameters(struct audio_stream *stream, const char *kvpairs)
     return 0;
 }
 
-static char * in_get_parameters(const struct audio_stream *stream,
+static char* in_get_parameters(const struct audio_stream *stream,
                                 const char *keys)
 {
-    return strdup("");
+    ALOGV("+in_get_parameters(%p) '%s'", stream, keys);
+
+    struct stream_in_common *in = (struct stream_in_common *)stream;
+    struct str_parms *query = str_parms_create_str(keys);
+    struct str_parms *reply = str_parms_create();
+    char *str;
+
+    if (str_parms_has_key(query, AUDIO_PARAMETER_STREAM_SUP_FORMATS)) {
+        get_audio_format(reply, in->format);
+    }
+
+    str = str_parms_to_str(reply);
+    str_parms_destroy(query);
+    str_parms_destroy(reply);
+
+    ALOGV("-in_get_parameters(%p) '%s'", stream, keys);
+    return str;
 }
 
 static int in_set_gain(struct audio_stream_in *stream, float gain)
