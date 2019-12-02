@@ -450,7 +450,7 @@ static int out_remove_audio_effect(const struct audio_stream *stream, effect_han
 static int out_get_next_write_timestamp(const struct audio_stream_out *stream,
                                         int64_t *timestamp)
 {
-    return -EINVAL;
+    return -ENOSYS;
 }
 
 #ifdef TINYHAL_COMPRESS_PLAYBACK
@@ -748,7 +748,7 @@ exit:
 static int out_pcm_get_render_position(const struct audio_stream_out *stream,
                                    uint32_t *dsp_frames)
 {
-    return -EINVAL;
+    return -ENOSYS;
 }
 
 static void do_close_out_pcm(struct audio_stream_out *stream)
