@@ -75,6 +75,14 @@ property ro.product.device
             <ctl name="Jack Enable" val="0"/>
             <ctl name="Codec Config" index="8" val="0x7f,0x54,0xaa,0xaa"/>
 
+            <!-- A path to the mixer_paths file to use the ctl values from
+            the mixer_paths xml format.
+            This entry must have these attribute
+                path - path to the mixer_paths.xml file
+            -->
+
+            <mixer_paths path="/vendor/etc/mixer_paths.xml" />
+
         </init>
         </mixer>
 
