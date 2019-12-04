@@ -29,6 +29,8 @@ LOCAL_C_INCLUDES += \
 	external/tinycompress/include \
 	external/tinyalsa/include \
 	external/expat/lib \
+	system/media/audio_effects/include \
+	system/media/audio_route/include \
 	$(call include-path-for, audio-utils)
 
 
@@ -43,6 +45,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libhardware \
 	libexpat	\
 	libtinyalsa	\
+	libaudioroute \
 
 ifeq ($(strip $(TINYALSA_NO_ADD_NEW_CTRLS)),true)
 LOCAL_CFLAGS += -DTINYALSA_NO_ADD_NEW_CTRLS

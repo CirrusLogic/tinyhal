@@ -40,6 +40,7 @@ typedef struct effect_interface_s **effect_handle_t;
 #include <expat.h>
 
 #include "../include/tinyhal/audio_config.h"
+#include <audio_route/audio_route.h>
 
 #define MIXER_CARD_DEFAULT 0
 #define PCM_CARD_DEFAULT 0
@@ -230,6 +231,7 @@ enum element_index {
     e_elem_audiohal,
     e_elem_codec_probe,
     e_elem_codec_case,
+    e_elem_mixer_paths,
 
     e_elem_count
 };
@@ -1013,6 +1015,7 @@ static int parse_codec_probe_start(struct parse_state *state);
 static int parse_codec_probe_end(struct parse_state *state);
 static int parse_codec_case_start(struct parse_state *state);
 static int parse_set_start(struct parse_state *state);
+static int parse_mixer_paths_start(struct parse_state *state);
 
 static const struct parse_element elem_table[e_elem_count] = {
     [e_elem_ctl] =    {
@@ -1112,11 +1115,20 @@ static const struct parse_element elem_table[e_elem_count] = {
         .end_fn = NULL
         },
 
+    [e_elem_mixer_paths] =    {
+        .name = "mixer_paths",
+        .valid_attribs = BIT(e_attrib_path),
+        .required_attribs = BIT(e_attrib_path),
+        .valid_subelem = 0,
+        .start_fn = parse_mixer_paths_start,
+        .end_fn = NULL
+    },
+
     [e_elem_init] =     {
         .name = "init",
         .valid_attribs = 0,
         .required_attribs = 0,
-        .valid_subelem = BIT(e_elem_ctl),
+        .valid_subelem = BIT(e_elem_ctl) | BIT(e_elem_mixer_paths),
         .start_fn = parse_init_start,
         .end_fn = parse_init_end
         },
@@ -2286,6 +2298,25 @@ static int parse_mixer_start(struct parse_state *state)
                                                   BIT(e_elem_device)
                                                 | BIT(e_elem_stream);
     return 0;
+}
+
+static int parse_mixer_paths_start(struct parse_state *state)
+{
+    const char *path = state->attribs.value[e_attrib_path];
+    struct audio_route* audio_route;
+
+    ALOGV("parse_mixer_paths_start");
+
+    ALOGV("Reading audio route settings from the %s file", path);
+    audio_route = audio_route_init(state->mixer_card_number, path);
+    if (audio_route) {
+        ALOGV("Apply audio route settings from the %s file", path);
+        audio_route_free(audio_route);
+        return 0;
+    } else {
+        ALOGE("Failed to read audio route settings from the %s file", path);
+        return -EINVAL;
+    }
 }
 
 static int parse_set_error(struct parse_state *state, int error)
