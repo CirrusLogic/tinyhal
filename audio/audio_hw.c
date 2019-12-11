@@ -1240,7 +1240,7 @@ static int do_init_out_compress(struct stream_out_compress *out,
 
     out->codec.sample_rate = config->sample_rate;
 
-    switch (config->format & AUDIO_FORMAT_MAIN_MASK) {
+    switch (audio_get_main_format(config->format)) {
         case AUDIO_FORMAT_MP3:
             out->codec.id = SND_AUDIOCODEC_MP3;
             break;
