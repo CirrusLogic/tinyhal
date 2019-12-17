@@ -40,9 +40,12 @@
 #include <system/audio.h>
 
 #include <tinyalsa/asoundlib.h>
+
+#ifdef TINYHAL_COMPRESS_PLAYBACK
 #include <sound/compress_params.h>
 #include <sound/compress_offload.h>
 #include <tinycompress/tinycompress.h>
+#endif
 
 #include <audio_utils/resampler.h>
 
@@ -53,8 +56,6 @@
 #ifdef ENABLE_STHAL_STREAMS
 #include <vendor/cirrus/scchal/scc_audio.h>
 #endif
-
-#define TINYHAL_COMPRESS_PLAYBACK
 
 /* These values are defined in _frames_ (not bytes) to match the ALSA API */
 #define OUT_PERIOD_SIZE_DEFAULT 256
@@ -2091,15 +2092,15 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         goto err_open;
     }
 
-#ifdef TINYHAL_COMPRESS_PLAYBACK
     if (hw->type == e_stream_out_pcm) {
         ret = do_init_out_pcm(out.pcm, config);
     } else {
+#ifdef TINYHAL_COMPRESS_PLAYBACK
         ret = do_init_out_compress(out.compress, config);
-    }
 #else
-    ret = do_init_out_pcm(out.pcm, config);
+        ret = -ENOTSUP;
 #endif
+    }
 
     if (ret < 0) {
         goto err_open;
