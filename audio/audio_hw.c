@@ -54,14 +54,7 @@
 #include <vendor/cirrus/scchal/scc_audio.h>
 #endif
 
-/*
- * Kit Kat didn't change the HAL API version despite the API changing to
- * add compress support. Use an alternative way of ensuring we can still
- * build against Jellybean without the compress playback support
- */
-#ifdef AUDIO_OFFLOAD_CODEC_PARAMS
 #define TINYHAL_COMPRESS_PLAYBACK
-#endif
 
 /* These values are defined in _frames_ (not bytes) to match the ALSA API */
 #define OUT_PERIOD_SIZE_DEFAULT 256
