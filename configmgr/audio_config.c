@@ -2426,7 +2426,7 @@ static int get_card_id_for_name(const char* name, uint32_t *id)
         return -EINVAL;
     }
 
-    struct DIR* dir;
+    DIR* dir;
     struct dirent* entry;
     int ret = -EINVAL;
 
