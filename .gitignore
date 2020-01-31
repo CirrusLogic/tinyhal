@@ -1,0 +1,28 @@
+# Object files
+*.o
+*.ko
+*.elf
+
+# Libraries
+*.a
+*.la
+
+# Shared objects
+*.so
+*.so.*
+
+# Executables
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Git's patch files
+*.patch
+
+# Java specific
+*.jar
+*.art
+*.class
+
