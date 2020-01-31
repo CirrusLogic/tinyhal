@@ -1878,7 +1878,7 @@ static int parse_preinit_end(struct parse_state *state)
     return 0;
 }
 
-char *probe_trim_spaces(char *str)
+static char *probe_trim_spaces(char *str)
 {
     int len;
     char *end;
