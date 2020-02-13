@@ -176,12 +176,6 @@ struct stream_control {
     uint                max;
 };
 
-struct volume_control {
-    struct stream_control control;
-    uint min;
-    uint max;
-};
-
 struct stream {
     struct hw_stream  info;   /* must be first member */
 
