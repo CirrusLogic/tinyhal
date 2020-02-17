@@ -65,3 +65,7 @@ endif
 
 include $(BUILD_SHARED_LIBRARY)
 
+ifeq ($(strip $(BUILD_TINYHAL_THCM_TESTS)),true)
+include $(CLEAR_VARS)
+include $(call first-makefiles-under,$(LOCAL_PATH))
+endif
