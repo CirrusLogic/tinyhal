@@ -3,6 +3,9 @@
 *.ko
 *.elf
 
+# Make dependency files
+*.d
+
 # Libraries
 *.a
 *.la
