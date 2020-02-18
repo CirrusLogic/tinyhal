@@ -3,16 +3,18 @@ SRC = audio_config.c
 OBJ = ${SRC:.c=.o}
 CFLAGS = -fPIC -Wall -Wextra -Wunused
 
+# GCC automatically takes CPATH and C_INCLUDE_PATH environment variables
+# so only need to handle any additional paths that user wants to pass to make
+# in EXTRA_C_INCLUDE_PATHS (whitespace-separated)
+INCLUDEDIRS=$(foreach p,$(EXTRA_C_INCLUDE_PATHS),-I$p)
+
 CROSS_COMPILE =
 CC = $(CROSS_COMPILE)gcc
 
 LDFLAGS += -shared
 RM = rm -f
 
-TINYALSA_DIR =../../tinyalsa
-
-INCLUDEDIRS = -I${TINYALSA_DIR}/include \
-	   -I../include
+LOCAL_INCLUDE_PATH = ../include
 
 .PHONY: all build clean
 all: build
@@ -23,7 +25,7 @@ ${LIB}: ${OBJ}
 	${CC} ${LDFLAGS} $^ -o $@  -lexpat -ltinyalsa
 
 %.o: %.c
-	${CC} ${CFLAGS} ${INCLUDEDIRS} -c -o $@ $<
+	${CC} ${INCLUDEDIRS} -I${LOCAL_INCLUDE_PATH} ${CFLAGS} -c -o $@ $<
 
 clean:
 	-${RM} ${LIB} ${OBJ}
