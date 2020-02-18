@@ -1,15 +1,12 @@
-CFLAGS = -fPIC -Wall -Wextra -Wunused
-
 # GCC automatically takes CPATH and C_INCLUDE_PATH environment variables
 # so only need to handle any additional paths that user wants to pass to make
 # in EXTRA_C_INCLUDE_PATHS (whitespace-separated)
 INCLUDEDIRS=$(foreach p,$(EXTRA_C_INCLUDE_PATHS),-I$p)
 
-CROSS_COMPILE =
-CC = $(CROSS_COMPILE)gcc
+# CC, LD and RM are assumed to be predefined or the default overridden by user
 
-LDFLAGS += -shared
-RM = rm -f
+CFLAGS+=-fPIC -Wall -Wextra -Wunused
+LDFLAGS+=-shared
 
 LOCAL_INCLUDE_PATH = ../include
 
@@ -17,7 +14,6 @@ LIB=libaudiohalcm.so
 SRC=audio_config.c
 OBJ=${SRC:.c=.o}
 DEP=${SRC:.c=.d}
-
 
 .PHONY: all build clean
 all: build
@@ -31,7 +27,7 @@ all: build
 build: ${LIB}
 
 ${LIB}: ${OBJ}
-	${CC} ${LDFLAGS} $^ -o $@  -lexpat -ltinyalsa
+	${LD} ${LDFLAGS} $^ -o $@  -lexpat -ltinyalsa
 
 %.o: %.c
 	${CC} ${INCLUDEDIRS} -I${LOCAL_INCLUDE_PATH} ${CFLAGS} -c -o $@ $<
