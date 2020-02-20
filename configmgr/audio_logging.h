@@ -1,5 +1,7 @@
 /*
- * Copyright (C) 2019 Cirrus Logic
+ * Copyright (C) 2019-2020 Cirrus Logic, Inc. and
+ *                         Cirrus Logic International Semiconductor Ltd.
+ *                         All rights reserved.
  *
  * Copied from parts of Android Nougat
  * Copyright (C) 2011 The Android Open Source Project
@@ -26,11 +28,7 @@
 #define TINYHAL_AUDIO_LOGGING_H
 
 #ifndef LOG_NDEBUG
-#ifdef NDEBUG
 #define LOG_NDEBUG 1
-#else
-#define LOG_NDEBUG 0
-#endif
 #endif
 
 /*
