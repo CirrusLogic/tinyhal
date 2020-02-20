@@ -388,6 +388,49 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1supported_1output_1devices(JNI
     return ((jlong)get_supported_output_devices(ptr)) & 0xffffffffL;
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1named_1stream(JNIEnv *env,
+                                                                jobject thiz,
+                                                                jstring name)
+{
+    TStringUtfAutoReleased c_name(env, name);
+    if (!c_name.isOk()) {
+        return -EINVAL;
+    }
+
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto* s = get_named_stream(ptr, c_name.c_str());
+    if (s == nullptr) {
+        return -ENOENT;
+    }
+
+    return (jlong)s;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream(JNIEnv *env,
+                                                             jobject thiz,
+                                                             jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    release_stream(s);
+
+    return 0;
+}
+
 #ifdef ANDROID
 static const char kAlsaMockClassPathName[] = "com.cirrus.tinyhal.test.thcm.CAlsaMock";
 
@@ -452,6 +495,14 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "get_supported_output_devices",
       "()J",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1supported_1output_1devices
+    },
+    { "get_named_stream",
+      "(Ljava/lang/String;)J",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1named_1stream
+    },
+    { "release_stream",
+      "(J)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream
     },
 };
 

@@ -2,3 +2,4 @@ harness/jni/com_cirrus_tinyhal_test_thcm_CAlsaMock.h
 harness/jni/com_cirrus_tinyhal_test_thcm_CConfigMgr.h
 com/*
 javadoc/*
+*.bin
