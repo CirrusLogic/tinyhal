@@ -118,8 +118,11 @@ void free_audio_config( struct config_mgr *cm );
 /** Get libtinyalsa mixer backing this config_mgr instance */
 struct mixer *get_mixer( const struct config_mgr *cm );
 
-/** Get list of all supported devices */
-uint32_t get_supported_devices( struct config_mgr *cm );
+/** Return list of all supported input devices */
+uint32_t get_supported_input_devices( struct config_mgr *cm );
+
+/** Return list of all supported output devices */
+uint32_t get_supported_output_devices( struct config_mgr *cm );
 
 /** Find a suitable stream and return pointer to it */
 const struct hw_stream *get_stream(  struct config_mgr *cm,
