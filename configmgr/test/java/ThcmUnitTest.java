@@ -29,7 +29,8 @@ import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
-    ThcmByteControlTest.class
+    ThcmByteControlTest.class,
+    ThcmIntControlTest.class
 })
 public class ThcmUnitTest {
 }
