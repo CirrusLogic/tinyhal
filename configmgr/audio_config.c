@@ -126,7 +126,7 @@ struct ctl {
      * be converted later into the appropriate type
      */
     union {
-        uint32_t        uinteger;
+        int             integer;
         const uint8_t   *data;
         const char      *string;
     } value;
@@ -172,8 +172,8 @@ struct usecase {
 struct stream_control {
     struct ctl_ref      ref;
     uint                index;
-    uint                min;
-    uint                max;
+    int                 min;
+    int                 max;
 };
 
 struct stream {
@@ -338,6 +338,7 @@ struct parse_state {
 
 
 static int string_to_uint(uint32_t *result, const char *str);
+static int string_to_int(int *result, const char *str);
 static int get_value_from_file(struct ctl *c, uint32_t vnum);
 static int make_byte_work_buffer(struct ctl *pctl, uint32_t buffer_size);
 static int make_byte_array(struct ctl *c, uint32_t vnum);
@@ -432,7 +433,7 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
 
         case MIXER_CTL_TYPE_BOOL:
         case MIXER_CTL_TYPE_INT:
-            if (string_to_uint(&pctl->value.uinteger, val_str) == -EINVAL) {
+            if (string_to_int(&pctl->value.integer, val_str) == -EINVAL) {
                 return -EINVAL;
             }
 
@@ -440,9 +441,9 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
 
             /* This log statement is just to aid to debugging */
             ALOGE_IF((ctl_type == MIXER_CTL_TYPE_BOOL)
-                        && (pctl->value.uinteger > 1),
-                        "WARNING: Illegal value for bool control");
-            ALOGV("Added ctl '%s' value %u", pctl->name, pctl->value.uinteger);
+                     && ((unsigned int)pctl->value.integer > 1),
+                     "WARNING: Illegal value for bool control");
+            ALOGV("Added ctl '%s' value 0x%x", pctl->name, pctl->value.integer);
             break;
 
         case MIXER_CTL_TYPE_ENUM:
@@ -487,22 +488,22 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
 
                 ALOGV("apply ctl '%s' = 0x%x (%d values)",
                                         mixer_ctl_get_name(ctl),
-                                        pctl->value.uinteger,
+                                        pctl->value.integer,
                                         value_count);
 
                 if (pctl->index == INVALID_CTL_INDEX) {
                     for (vnum = 0; vnum < value_count; ++vnum) {
-                        err = mixer_ctl_set_value(ctl, vnum, pctl->value.uinteger);
+                        err = mixer_ctl_set_value(ctl, vnum, pctl->value.integer);
                         if (err < 0) {
                             break;
                         }
                     }
                 } else {
-                    err = mixer_ctl_set_value(ctl, pctl->index, pctl->value.uinteger);
+                    err = mixer_ctl_set_value(ctl, pctl->index, pctl->value.integer);
                 }
-                ALOGE_IF(err < 0, "Failed to set ctl '%s' to %u",
+                ALOGE_IF(err < 0, "Failed to set ctl '%s' to 0x%x",
                                         mixer_ctl_get_name(ctl),
-                                        pctl->value.uinteger);
+                                        pctl->value.integer);
                 break;
 
             case MIXER_CTL_TYPE_BYTE:
@@ -731,8 +732,8 @@ static int set_vol_ctl(struct stream *stream,
                        const struct stream_control *volctl, uint percent)
 {
     struct mixer_ctl *ctl = ctl_get_ptr(stream->cm, &volctl->ref);
-    uint val;
-    uint range;
+    int val;
+    int range;
 
     switch (percent) {
     case 0:
@@ -1564,11 +1565,38 @@ static int string_to_uint(uint32_t *result, const char *str)
     }
 }
 
+static int string_to_int(int *result, const char *str)
+{
+    char *endptr;
+    unsigned long int v;
+
+    if (!str) {
+        return -ENOENT;
+    }
+
+    /* return error if not a valid decimal or hex number */
+    v = strtol(str, &endptr, 0);
+    if ((endptr[0] == '\0') && (endptr != str)) {
+        *result = v;
+        return 0;
+    } else {
+        ALOGE("'%s' not a valid signed integer", str);
+        return -EINVAL;
+    }
+}
+
 static int attrib_to_uint(uint32_t *result, struct parse_state *state,
                                 enum attrib_index index)
 {
     const char *str = state->attribs.value[index];
     return string_to_uint(result, str);
+}
+
+static int attrib_to_int(int *result, struct parse_state *state,
+                                enum attrib_index index)
+{
+    const char *str = state->attribs.value[index];
+    return string_to_int(result, str);
 }
 
 static int make_byte_work_buffer(struct ctl *c,
@@ -2145,12 +2173,22 @@ static int parse_stream_ctl_start(struct parse_state *state)
     struct mixer_ctl *ctl;
     struct stream_control *streamctl;
     uint idx_val = 0;
-    uint32_t v;
-    int r;
+    int v;
 
     ctl = mixer_get_ctl_by_name(state->cm->mixer, name);
     if (!ctl) {
         ALOGE("Control '%s' not found", name);
+        return -EINVAL;
+    }
+
+    /*
+     * Tinyalsa mixer_ctl_get_range_min()/mixer_ctl_get_range_max()
+     * return negative error if the control isn't valid. As the minimum
+     * value could be negative we can't check for errors so check in advance
+     * that the control will not cause an error from these functions.
+     */
+    if (mixer_ctl_get_type(ctl) != MIXER_CTL_TYPE_INT) {
+        ALOGE("Control '%s' is not an integer", name);
         return -EINVAL;
     }
 
@@ -2175,19 +2213,14 @@ static int parse_stream_ctl_start(struct parse_state *state)
 
     streamctl->index = idx_val;
 
-    switch (attrib_to_uint(&v, state, e_attrib_min)) {
+    switch (attrib_to_int(&v, state, e_attrib_min)) {
     case -EINVAL:
         ALOGE("Invalid min for '%s'", name);
         return -EINVAL;
 
     case -ENOENT:
         /* Not specified, get control's min value */
-        r = mixer_ctl_get_range_min(ctl);
-        if (r < 0) {
-            ALOGE("Failed to get control min");
-            return r;
-        }
-        streamctl->min = (uint)r;
+        streamctl->min = mixer_ctl_get_range_min(ctl);
         break;
 
     default:
@@ -2195,19 +2228,14 @@ static int parse_stream_ctl_start(struct parse_state *state)
         break;
     }
 
-    switch (attrib_to_uint(&v, state, e_attrib_max)) {
+    switch (attrib_to_int(&v, state, e_attrib_max)) {
     case -EINVAL:
         ALOGE("Invalid max for '%s'", name);
         return -EINVAL;
 
     case -ENOENT:
         /* Not specified, get control's max value */
-        r = mixer_ctl_get_range_max(ctl);
-        if (r < 0) {
-            ALOGE("Failed to get control max");
-            return r;
-        }
-        streamctl->max = (uint)r;
+        streamctl->max = mixer_ctl_get_range_max(ctl);
         break;
 
     default:
@@ -2217,7 +2245,7 @@ static int parse_stream_ctl_start(struct parse_state *state)
 
     ctl_set_ref(&streamctl->ref, ctl);
 
-    ALOGV("(%p) Added control '%s' function '%s' range %u-%u",
+    ALOGV("(%p) Added control '%s' function '%s' range %d-%d",
                 state->current.stream,
                 name, function, streamctl->min, streamctl->max);
 
@@ -2757,7 +2785,7 @@ static void print_ctls(const struct config_mgr *cm)
                 switch (c->type) {
                 case MIXER_CTL_TYPE_BOOL:
                 case MIXER_CTL_TYPE_INT:
-                    ALOGV("int: %d", c->value.uinteger);
+                    ALOGV("int: 0x%x", c->value.integer);
                     break;
                 case MIXER_CTL_TYPE_BYTE:
                     if (c->data_file_name) {
