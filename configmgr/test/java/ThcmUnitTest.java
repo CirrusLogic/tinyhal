@@ -31,7 +31,8 @@ import org.junit.runners.Suite;
 @Suite.SuiteClasses({
     ThcmByteControlTest.class,
     ThcmIntControlTest.class,
-    ThcmEnumControlTest.class
+    ThcmEnumControlTest.class,
+    ThcmBoolControlTest.class
 })
 public class ThcmUnitTest {
 }
