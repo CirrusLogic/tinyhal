@@ -30,7 +30,8 @@ import org.junit.runners.Suite;
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
     ThcmByteControlTest.class,
-    ThcmIntControlTest.class
+    ThcmIntControlTest.class,
+    ThcmEnumControlTest.class
 })
 public class ThcmUnitTest {
 }
