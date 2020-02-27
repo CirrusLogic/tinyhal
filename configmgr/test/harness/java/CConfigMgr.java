@@ -157,6 +157,21 @@ public class CConfigMgr
                                 AUDIO_DEVICE_IN_USB_ACCESSORY |
                                 AUDIO_DEVICE_IN_USB_DEVICE);
 
+    public static final long AUDIO_CHANNEL_NONE             = 0x0;
+    public static final long AUDIO_CHANNEL_INVALID          = 0xC0000000;
+
+    public static final long AUDIO_CHANNEL_OUT_FRONT_LEFT   = 0x1;
+    public static final long AUDIO_CHANNEL_OUT_FRONT_RIGHT  = 0x2;
+    public static final long AUDIO_CHANNEL_OUT_FRONT_CENTER = 0x4;
+    public static final long AUDIO_CHANNEL_IN_LEFT          = 0x4;
+    public static final long AUDIO_CHANNEL_IN_RIGHT         = 0x8;
+    public static final long AUDIO_CHANNEL_IN_FRONT         = 0x10;
+    public static final long AUDIO_CHANNEL_IN_BACK          = 0x20;
+
+    public static final long AUDIO_FORMAT_INVALID           = 0xFFFFFFFF;
+    public static final long AUDIO_FORMAT_DEFAULT           = 0;
+    public static final long AUDIO_FORMAT_PCM               = 0x00000000;
+    public static final long AUDIO_FORMAT_MP3               = 0x01000000;
 
     public static long deviceFromName(String name)
     {
@@ -176,6 +191,13 @@ public class CConfigMgr
 
         return 0;
     }
+
+    public static class AudioConfig {
+        public int sample_rate;
+        public long channel_mask;
+        public long format;
+    };
+
     private native final void native_setup();
 
     public native final int init_audio_config(String config_file_name);
@@ -183,6 +205,11 @@ public class CConfigMgr
     public native final long get_supported_input_devices();
     public native final long get_supported_output_devices();
 
+    public native final long get_stream(long devices,
+                                        long flags,
+                                        AudioConfig config);
     public native final long get_named_stream(String name);
     public native final int release_stream(long stream);
+
+    public native final int set_hw_volume(long stream, int left_pc, int right_pc);
 };

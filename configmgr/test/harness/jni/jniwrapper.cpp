@@ -28,6 +28,7 @@
 #ifdef ANDROID
 #include <android_runtime/AndroidRuntime.h>
 #include <nativehelper/JNIHelp.h>
+#include <system/audio.h>
 #include <utils/Errors.h>
 #include <utils/Log.h>
 
@@ -389,6 +390,44 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1supported_1output_1devices(JNI
 }
 
 JNIEXPORT jlong JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream(JNIEnv *env,
+                                                         jobject thiz,
+                                                         jlong devices,
+                                                         jlong flags,
+                                                         jobject config)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    struct audio_config native_cfg;
+    memset(&native_cfg, 0, sizeof(native_cfg));
+
+    jclass cfgcls = env->GetObjectClass(config);
+
+    jfieldID fid = env->GetFieldID(cfgcls, "sample_rate", "I");
+    native_cfg.sample_rate = env->GetIntField(config, fid);
+
+    fid = env->GetFieldID(cfgcls, "channel_mask", "J");
+    native_cfg.channel_mask = env->GetLongField(config, fid);
+
+    fid = env->GetFieldID(cfgcls, "format", "J");
+    native_cfg.format = static_cast<audio_format_t>(env->GetLongField(config, fid));
+
+    auto* s = get_stream(ptr,
+                         static_cast<audio_devices_t>(devices),
+                         static_cast<audio_output_flags_t>(flags),
+                         &native_cfg);
+
+    if (s == nullptr) {
+        return -ENOENT;
+    }
+
+    return (jlong)s;
+}
+
+JNIEXPORT jlong JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1named_1stream(JNIEnv *env,
                                                                 jobject thiz,
                                                                 jstring name)
@@ -429,6 +468,26 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream(JNIEnv *env,
     release_stream(s);
 
     return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_set_1hw_1volume(JNIEnv *env,
+                                                             jobject thiz,
+                                                             jlong strm,
+                                                             jint left_pc,
+                                                             jint right_pc)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return set_hw_volume(s, left_pc, right_pc);
 }
 
 #ifdef ANDROID
@@ -496,6 +555,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
       "()J",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1supported_1output_1devices
     },
+    { "get_stream",
+      "(JJLcom/cirrus/tinyhal/test/thcm/CConfigMgr$AudioConfig;)J",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream
+    },
     { "get_named_stream",
       "(Ljava/lang/String;)J",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1named_1stream
@@ -503,6 +566,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "release_stream",
       "(J)I",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream
+    },
+    { "set_hw_volume",
+      "(JII)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_set_1hw_1volume
     },
 };
 
