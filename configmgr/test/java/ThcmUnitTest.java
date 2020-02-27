@@ -33,7 +33,8 @@ import org.junit.runners.Suite;
     ThcmIntControlTest.class,
     ThcmEnumControlTest.class,
     ThcmBoolControlTest.class,
-    ThcmPathControlsTest.class
+    ThcmPathControlsTest.class,
+    ThcmInitControlsTest.class
 })
 public class ThcmUnitTest {
 }
