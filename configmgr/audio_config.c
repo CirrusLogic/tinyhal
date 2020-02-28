@@ -737,6 +737,11 @@ static int set_vol_ctl(struct stream *stream,
     long long lmax;
     long long lval;
 
+    if (percent > 100) {
+        ALOGE("Volume percent %u is >100", percent);
+        return -EINVAL;
+    }
+
     switch (percent) {
     case 0:
         val = volctl->min;
