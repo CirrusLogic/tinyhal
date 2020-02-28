@@ -733,7 +733,9 @@ static int set_vol_ctl(struct stream *stream,
 {
     struct mixer_ctl *ctl = ctl_get_ptr(stream->cm, &volctl->ref);
     int val;
-    int range;
+    long long lmin;
+    long long lmax;
+    long long lval;
 
     switch (percent) {
     case 0:
@@ -745,8 +747,10 @@ static int set_vol_ctl(struct stream *stream,
         break;
 
     default:
-        range = volctl->max - volctl->min;
-        val = volctl->min + ((percent * range)/100);
+        lmin = volctl->min;
+        lmax = volctl->max;
+        lval = lmin + (((lmax - lmin) * percent) / 100LL);
+        val = (int)lval;
         break;
     }
 
