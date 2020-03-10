@@ -471,6 +471,36 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream(JNIEnv *env,
 }
 
 JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_apply_1use_1case(JNIEnv *env,
+                                                              jobject thiz,
+                                                              jlong strm,
+                                                              jstring setting,
+                                                              jstring casename)
+{
+    TStringUtfAutoReleased c_setting(env, setting);
+    if (!c_setting.isOk()) {
+        return -EINVAL;
+    }
+
+    TStringUtfAutoReleased c_casename(env, casename);
+    if (!c_casename.isOk()) {
+        return -EINVAL;
+    }
+
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return apply_use_case(s, c_setting.c_str(), c_casename.c_str());
+}
+
+JNIEXPORT jint JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_set_1hw_1volume(JNIEnv *env,
                                                              jobject thiz,
                                                              jlong strm,
@@ -566,6 +596,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "release_stream",
       "(J)I",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream
+    },
+    { "apply_use_case",
+      "(JLjava/lang/String;Ljava/lang/String;)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_apply_1use_1case
     },
     { "set_hw_volume",
       "(JII)I",
