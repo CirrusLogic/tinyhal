@@ -1972,7 +1972,7 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
             devices = new_routing;
         } else if (in->common.hw != NULL) {
             /* Route new stream to same devices as current stream */
-            devices = get_routed_devices(in->common.hw);
+            devices = get_current_routes(in->common.hw);
         } else {
             devices = 0;
         }

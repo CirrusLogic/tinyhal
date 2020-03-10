@@ -718,12 +718,6 @@ void apply_route( const struct hw_stream *stream, uint32_t devices )
     pthread_mutex_unlock(&cm->lock);
 }
 
-uint32_t get_routed_devices( const struct hw_stream *stream )
-{
-    struct stream *s = (struct stream *)stream;
-    return s->current_devices;
-}
-
 /*********************************************************************
  * Stream control
  *********************************************************************/

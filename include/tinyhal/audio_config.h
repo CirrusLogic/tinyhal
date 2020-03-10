@@ -157,14 +157,11 @@ bool is_named_stream_defined(struct config_mgr *cm, const char *name);
 /** Release stream */
 void release_stream( const struct hw_stream *stream );
 
-/** Get currently connected routes */
+/** Get bitmask of devices currently connected to this stream */
 uint32_t get_current_routes( const struct hw_stream *stream );
 
 /** Apply new device routing to a stream */
 void apply_route( const struct hw_stream *stream, uint32_t devices );
-
-/** Get bitmask of devices currently connected to this stream */
-uint32_t get_routed_devices( const struct hw_stream *stream );
 
 /** Apply hardware volume */
 int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc);
