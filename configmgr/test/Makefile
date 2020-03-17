@@ -18,6 +18,7 @@
 JAVAC ?= javac
 JAR ?= jar
 JAVA ?= java
+JAVADOC ?= javadoc
 JUNIT_RUNNER ?= org.junit.runner.JUnitCore
 JAVA_C_INCLUDE_PATHS=$(JAVA_HOME)/include $(JAVA_HOME)/include/linux
 
@@ -30,6 +31,7 @@ JNIJAVASRC_PATH = harness/java
 JAVAPLATFORMSRC_PATH = platform/linux
 CONFIGMGRSRC_PATH = ..
 CONFIGMGRSRC_INCLUDE_PATH = ../../include
+JAVADOC_OUT_PATH = javadoc
 
 # Local C++ compiler and linker options
 LOCAL_CXXFLAGS = -std=c++17 -fPIC -Wall -Wextra -Wunused
@@ -77,8 +79,8 @@ LOCAL_JAVA_C_INCLUDES = $(patsubst %,-I%,$(JAVA_C_INCLUDE_PATHS))
 
 ######################################################################
 # Top-level build targets
-.PHONY: all build clean clean_jni clean_java dep depend run runall
-all: build
+.PHONY: all build clean clean_jni clean_java dep depend run runall javadoc
+all: build javadoc
 
 build: $(JNITARGET) $(JARTARGET)
 
@@ -157,6 +159,12 @@ $(JARTARGET) : $(JARSRC) $(JNIJAVACLASS_SRC)
 	$(JAVAC) -cp $(CLASSPATH) -d . $(JARSRC) $(JNIJAVACLASS_SRC)
 	$(JAR) -cf $(JARTARGET) $(JARPACKAGE_PATHIZED)/*.class
 
+######################################################################
+# Build test Javadoc
+javadoc:
+	$(JAVADOC) -d $(JAVADOC_OUT_PATH) $(JARSRC) $(JNIJAVACLASS_SRC)
+
 clean_java:
 	$(RM) $(JARTARGET)
 	$(RM) -rf $(JAR_CLASS_PATH_BASEDIR)
+	$(RM) -rf $(JAVADOC_OUT_PATH)
