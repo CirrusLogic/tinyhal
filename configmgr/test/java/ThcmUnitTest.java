@@ -36,7 +36,8 @@ import org.junit.runners.Suite;
     ThcmPathControlsTest.class,
     ThcmInitControlsTest.class,
     ThcmUsecaseControlsTest.class,
-    ThcmVolumeControlsTest.class
+    ThcmVolumeControlsTest.class,
+    ThcmSupportedDevicesTest.class
 })
 public class ThcmUnitTest {
 }

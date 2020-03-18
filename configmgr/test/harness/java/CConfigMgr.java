@@ -173,6 +173,25 @@ public class CConfigMgr
     public static final long AUDIO_FORMAT_PCM               = 0x00000000;
     public static final long AUDIO_FORMAT_MP3               = 0x01000000;
 
+    public static final String[] OUTPUT_DEVICES = {
+        "speaker",
+        "earpiece",
+        "headset",
+        "headphone",
+        "sco",
+        "a2dp",
+        "usb"
+    };
+
+    public static final String[] INPUT_DEVICES = {
+        "headset_in",
+        "sco_in",
+        "mic",
+        "back mic",
+        "voice",
+        "aux"
+    };
+
     public static long deviceFromName(String name)
     {
         if (name.equals("speaker"))    return AUDIO_DEVICE_OUT_SPEAKER;
