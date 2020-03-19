@@ -839,6 +839,9 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
     pthread_mutex_unlock(&cm->lock);
 
     if (i >= 0) {
+        // apply initial routing
+        apply_route(&s[i].info, devices);
+
         ALOGV("-get_stream =%p (refcount=%d)", &s[i].info,
                                                 s[i].ref_count );
         return &s[i].info;
