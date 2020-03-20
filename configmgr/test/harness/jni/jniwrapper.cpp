@@ -500,6 +500,27 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_apply_1use_1case(JNIEnv *env,
     return apply_use_case(s, c_setting.c_str(), c_casename.c_str());
 }
 
+JNIEXPORT void JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_apply_1route(JNIEnv *env,
+                                                          jobject thiz,
+                                                          jlong strm,
+                                                          jlong devices)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        throwRuntimeException(env, "No manager pointer");
+        return;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        throwRuntimeException(env, "Stream is null");
+        return;
+    }
+
+    apply_route(s, devices);
+}
+
 JNIEXPORT jint JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_set_1hw_1volume(JNIEnv *env,
                                                              jobject thiz,
@@ -600,6 +621,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "apply_use_case",
       "(JLjava/lang/String;Ljava/lang/String;)I",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_apply_1use_1case
+    },
+    { "apply_route",
+      "(JJ)V",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_apply_1route
     },
     { "set_hw_volume",
       "(JII)I",

@@ -234,5 +234,7 @@ public class CConfigMgr
                                            String setting,
                                            String casename);
 
+    public native final void apply_route(long stream, long devices);
+
     public native final int set_hw_volume(long stream, int left_pc, int right_pc);
 };
