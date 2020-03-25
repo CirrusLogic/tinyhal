@@ -470,6 +470,25 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream(JNIEnv *env,
     return 0;
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1current_1routes(JNIEnv *env,
+                                                                  jobject thiz,
+                                                                  jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    // logical-AND to prevent sign extension
+    return ((jlong)get_current_routes(s)) & 0xffffffffL;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_apply_1use_1case(JNIEnv *env,
                                                               jobject thiz,
@@ -617,6 +636,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "release_stream",
       "(J)I",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream
+    },
+    { "get_current_routes",
+      "(J)J",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1current_1routes
     },
     { "apply_use_case",
       "(JLjava/lang/String;Ljava/lang/String;)I",

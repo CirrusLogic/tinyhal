@@ -230,6 +230,8 @@ public class CConfigMgr
     public native final long get_named_stream(String name);
     public native final int release_stream(long stream);
 
+    public native final long get_current_routes(long stream);
+
     public native final int apply_use_case(long stream,
                                            String setting,
                                            String casename);

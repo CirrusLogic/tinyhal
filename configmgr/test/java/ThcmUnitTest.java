@@ -40,7 +40,8 @@ import org.junit.runners.Suite;
     ThcmSupportedDevicesTest.class,
     ThcmStreamInitialDeviceTest.class,
     ThcmApplyRoute1Test.class,
-    ThcmApplyRoute2Test.class
+    ThcmApplyRoute2Test.class,
+    ThcmReportedRoutesTest.class
 })
 public class ThcmUnitTest {
 }
