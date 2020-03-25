@@ -676,10 +676,6 @@ void apply_route( const struct hw_stream *stream, uint32_t devices )
     struct stream *s = (struct stream *)stream;
     struct config_mgr *cm = s->cm;
 
-    /* Only apply routes to devices that have changed state on this stream */
-    uint32_t enabling = devices & ~s->current_devices;
-    uint32_t disabling = ~devices & s->current_devices;
-
     ALOGV("apply_route(%p) devices=0x%x", stream, devices);
 
     if (devices != 0) {
@@ -702,6 +698,15 @@ void apply_route( const struct hw_stream *stream, uint32_t devices )
     }
 
     pthread_mutex_lock(&cm->lock);
+
+    /*
+     * Only apply routes to devices that have changed state on this stream.
+     * The input bit will be stripped as unchanged so restore it after.
+     */
+    uint32_t enabling = devices & ~s->current_devices;
+    uint32_t disabling = ~devices & s->current_devices;
+    enabling |= devices & AUDIO_DEVICE_BIT_IN;
+    disabling |= devices & AUDIO_DEVICE_BIT_IN;
 
     apply_paths_to_devices_l(cm, disabling, s->disable_path, e_path_id_off);
     apply_paths_to_devices_l(cm, enabling, e_path_id_on, s->enable_path);
