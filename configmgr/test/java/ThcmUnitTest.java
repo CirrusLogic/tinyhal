@@ -41,7 +41,8 @@ import org.junit.runners.Suite;
     ThcmStreamInitialDeviceTest.class,
     ThcmApplyRoute1Test.class,
     ThcmApplyRoute2Test.class,
-    ThcmReportedRoutesTest.class
+    ThcmReportedRoutesTest.class,
+    ThcmGlobalPathsTest.class
 })
 public class ThcmUnitTest {
 }
