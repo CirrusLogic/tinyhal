@@ -219,6 +219,22 @@ public class CConfigMgr
 
     private native final void native_setup();
 
+    public native final boolean stream_is_input(long stream);
+    public native final boolean stream_is_pcm(long stream);
+    public native final boolean stream_is_compressed(long stream);
+    public native final boolean stream_is_pcm_out(long stream);
+    public native final boolean stream_is_pcm_in(long stream);
+    public native final boolean stream_is_compressed_out(long stream);
+    public native final boolean stream_is_compressed_in(long stream);
+    public native final boolean stream_is_hardware(long stream);
+
+    // Extract values from struct hw_stream
+    public native final int getHwStreamStruct_card_number(long stream);
+    public native final int getHwStreamStruct_device_number(long stream);
+    public native final int getHwStreamStruct_rate(long stream);
+    public native final int getHwStreamStruct_period_size(long stream);
+    public native final int getHwStreamStruct_period_count(long stream);
+
     public native final int init_audio_config(String config_file_name);
     public native final int free_audio_config();
     public native final long get_supported_input_devices();

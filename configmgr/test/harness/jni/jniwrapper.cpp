@@ -324,6 +324,240 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_native_1setup(JNIEnv *env __unused,
     ALOGV("%s complete", __func__);
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1input(JNIEnv *env,
+                                                               jobject thiz,
+                                                               jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_input(s);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1pcm(JNIEnv *env,
+                                                             jobject thiz,
+                                                             jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_pcm(s);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1compressed(JNIEnv *env,
+                                                                    jobject thiz,
+                                                                    jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_compressed(s);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1pcm_1out(JNIEnv *env,
+                                                                  jobject thiz,
+                                                                  jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_pcm_out(s);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1pcm_1in(JNIEnv *env,
+                                                                 jobject thiz,
+                                                                 jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_pcm_in(s);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1compressed_1out(JNIEnv *env,
+                                                                         jobject thiz,
+                                                                         jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_compressed_out(s);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1compressed_1in(JNIEnv *env,
+                                                                        jobject thiz,
+                                                                        jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_compressed_in(s);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1hardware(JNIEnv *env,
+                                                                  jobject thiz,
+                                                                  jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return stream_is_hardware(s);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1card_1number(JNIEnv *env,
+                                                                             jobject thiz,
+                                                                             jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return s->card_number;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1device_1number(JNIEnv *env,
+                                                                               jobject thiz,
+                                                                               jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return s->device_number;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1rate(JNIEnv *env,
+                                                                     jobject thiz,
+                                                                     jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return s->rate;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1period_1size(JNIEnv *env,
+                                                                             jobject thiz,
+                                                                             jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return s->period_size;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1period_1count(JNIEnv *env,
+                                                                              jobject thiz,
+                                                                              jlong strm)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return -EINVAL;
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        return -EINVAL;
+    }
+
+    return s->period_count;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_init_1audio_1config(JNIEnv *env,
                                                                  jobject thiz,
@@ -608,6 +842,58 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "native_setup",
       "()V",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_native_1setup
+    },
+    { "stream_is_input",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1input,
+    },
+    { "stream_is_pcm",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1pcm,
+    },
+    { "stream_is_compressed",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1compressed,
+    },
+    { "stream_is_pcm_out",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1pcm_1out,
+    },
+    { "stream_is_pcm_in",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1pcm_1in,
+    },
+    { "stream_is_compressed_out",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1compressed_1out,
+    },
+    { "stream_is_compressed_in",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1compressed_1in,
+    },
+    { "stream_is_hardware",
+      "(J)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_stream_1is_1hardware,
+    },
+    { "getHwStreamStruct_card_number",
+      "(J)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1card_1number,
+    },
+    { "getHwStreamStruct_device_number",
+      "(J)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1device_1number,
+    },
+    { "getHwStreamStruct_rate",
+      "(J)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1rate,
+    },
+    { "getHwStreamStruct_period_size",
+      "(J)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1period_1size,
+    },
+    { "getHwStreamStruct_period_count",
+      "(J)I",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_getHwStreamStruct_1period_1count,
     },
     { "init_audio_config",
       "(Ljava/lang/String;)I",
