@@ -684,6 +684,94 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1named_1stream(JNIEnv *env,
     return (jlong)s;
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1string(JNIEnv *env,
+                                                                           jobject thiz,
+                                                                           jlong strm,
+                                                                           jstring name)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        throwRuntimeException(env, "No manager pointer");
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        throwRuntimeException(env, "Stream is null");
+    }
+
+    TStringUtfAutoReleased c_name(env, name);
+    if (!c_name.isOk()) {
+        throwRuntimeException(env, "Bad constant name");
+    }
+
+    const char *v = nullptr;
+    if (get_stream_constant_string(s, c_name.c_str(), &v) < 0) {
+        throwRuntimeException(env, "Stream constant not found");
+    }
+
+    return env->NewStringUTF(v);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1uint32(JNIEnv *env,
+                                                                           jobject thiz,
+                                                                           jlong strm,
+                                                                           jstring name)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        throwRuntimeException(env, "No manager pointer");
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        throwRuntimeException(env, "Stream is null");
+    }
+
+    TStringUtfAutoReleased c_name(env, name);
+    if (!c_name.isOk()) {
+        throwRuntimeException(env, "Bad constant name");
+    }
+
+    uint32_t v;
+    if (get_stream_constant_uint32(s, c_name.c_str(), &v) < 0) {
+        throwRuntimeException(env, "Stream constant not found");
+    }
+
+    // logical-AND to prevent sign extension
+    return ((jlong)v) & 0xffffffffL;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1int32(JNIEnv *env,
+                                                                          jobject thiz,
+                                                                          jlong strm,
+                                                                          jstring name)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        throwRuntimeException(env, "No manager pointer");
+    }
+
+    auto *s = reinterpret_cast<const struct hw_stream *>(strm);
+    if (s == nullptr) {
+        throwRuntimeException(env, "Stream is null");
+    }
+
+    TStringUtfAutoReleased c_name(env, name);
+    if (!c_name.isOk()) {
+        throwRuntimeException(env, "Bad constant name");
+    }
+
+    int32_t v;
+    if (get_stream_constant_int32(s, c_name.c_str(), &v) < 0) {
+        throwRuntimeException(env, "Stream constant not found");
+    }
+
+    return v;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream(JNIEnv *env,
                                                              jobject thiz,
@@ -918,6 +1006,18 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "get_named_stream",
       "(Ljava/lang/String;)J",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1named_1stream
+    },
+    { "get_stream_constant_string",
+      "(JLjava/lang/String;)Ljava/lang/String;",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1string,
+    },
+    { "get_stream_constant_uint32",
+      "(JLjava/lang/String;)J",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1uint32,
+    },
+    { "get_stream_constant_int32",
+      "(JLjava/lang/String;)J",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1int32,
     },
     { "release_stream",
       "(J)I",

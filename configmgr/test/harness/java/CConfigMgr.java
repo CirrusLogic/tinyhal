@@ -244,6 +244,11 @@ public class CConfigMgr
                                         long flags,
                                         AudioConfig config);
     public native final long get_named_stream(String name);
+
+    public native final String get_stream_constant_string(long stream, String name);
+    public native final long get_stream_constant_uint32(long stream, String name);
+    public native final long get_stream_constant_int32(long stream, String name);
+
     public native final int release_stream(long stream);
 
     public native final long get_current_routes(long stream);
