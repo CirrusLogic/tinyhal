@@ -124,7 +124,11 @@ uint32_t get_supported_input_devices( struct config_mgr *cm );
 /** Return list of all supported output devices */
 uint32_t get_supported_output_devices( struct config_mgr *cm );
 
-/** Find a suitable stream and return pointer to it */
+/**
+ * Find a suitable stream and return pointer to it.
+ * Note that this only considers unnamed streams (those without a 'name'
+ * attribute). For named streams use get_named_stream().
+ */
 const struct hw_stream *get_stream(  struct config_mgr *cm,
                                         const audio_devices_t devices,
                                         const audio_output_flags_t flags,

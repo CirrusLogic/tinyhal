@@ -210,7 +210,8 @@ struct config_mgr {
     uint32_t        supported_input_devices;
 
     struct dyn_array device_array;
-    struct dyn_array stream_array;
+    struct dyn_array anon_stream_array;
+    struct dyn_array named_stream_array;
 };
 
 /*********************************************************************
@@ -785,10 +786,10 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
 static struct stream *find_named_stream(struct config_mgr *cm,
                                    const char *name)
 {
-    struct stream *s = cm->stream_array.streams;
+    struct stream *s = cm->named_stream_array.streams;
     int i;
 
-    for (i = cm->stream_array.count - 1; i >= 0; --i) {
+    for (i = cm->named_stream_array.count - 1; i >= 0; --i) {
         if (s->name) {
             if (strcmp(s->name, name) == 0) {
                 return s;
@@ -819,7 +820,7 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
                                    const struct audio_config *config )
 {
     int i;
-    struct stream *s = cm->stream_array.streams;
+    struct stream *s = cm->anon_stream_array.streams;
     const bool pcm = audio_is_linear_pcm(config->format);
     enum stream_type type;
 
@@ -833,7 +834,7 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
     }
 
     pthread_mutex_lock(&cm->lock);
-    for (i = cm->stream_array.count - 1; i >= 0; --i) {
+    for (i = cm->anon_stream_array.count - 1; i >= 0; --i) {
         ALOGV("get_stream: require type=%d; try type=%d refcount=%d refmax=%d",
                     type, s[i].info.type, s[i].ref_count, s[i].max_ref_count );
         if (s[i].info.type == type) {
@@ -1470,7 +1471,8 @@ static struct config_mgr* new_config_mgr()
         return NULL;
     }
     mgr->device_array.elem_size = sizeof(struct device);
-    mgr->stream_array.elem_size = sizeof(struct stream);
+    mgr->anon_stream_array.elem_size = sizeof(struct stream);
+    mgr->named_stream_array.elem_size = sizeof(struct stream);
     pthread_mutex_init(&mgr->lock, NULL);
     return mgr;
 }
@@ -1478,7 +1480,8 @@ static struct config_mgr* new_config_mgr()
 static void compress_config_mgr(struct config_mgr *mgr)
 {
     dyn_array_fix(&mgr->device_array);
-    dyn_array_fix(&mgr->stream_array);
+    dyn_array_fix(&mgr->anon_stream_array);
+    dyn_array_fix(&mgr->named_stream_array);
 }
 
 static int find_path_name(struct parse_state *state, const char *name)
@@ -2280,9 +2283,11 @@ static int parse_stream_start(struct parse_state *state)
             ALOGE("Stream '%s' already declared", name);
             return -EINVAL;
         }
+        s = new_stream(&state->cm->named_stream_array, state->cm);
+    } else {
+        s = new_stream(&state->cm->anon_stream_array, state->cm);
     }
 
-    s = new_stream(&state->cm->stream_array, state->cm);
     if (s == NULL) {
         return -ENOMEM;
     }
@@ -2984,10 +2989,22 @@ static void free_constants( struct stream *stream )
     dyn_array_free(&stream->constants_array);
 }
 
+static void free_stream_array(struct dyn_array *stream_array)
+{
+    int stream_idx;
+
+    for(stream_idx = stream_array->count - 1; stream_idx >= 0; --stream_idx) {
+        free_usecases(&stream_array->streams[stream_idx]);
+        free_constants(&stream_array->streams[stream_idx]);
+    }
+
+    dyn_array_free(stream_array);
+}
+
 void free_audio_config( struct config_mgr *cm )
 {
-    struct dyn_array *path_array, *stream_array;
-    int dev_idx, path_idx, stream_idx;
+    struct dyn_array *path_array;
+    int dev_idx, path_idx;
 
     if (cm) {
         /* Free all devices */
@@ -3003,12 +3020,8 @@ void free_audio_config( struct config_mgr *cm )
 
         dyn_array_free(&cm->device_array);
 
-        stream_array = &cm->stream_array;
-        for(stream_idx = stream_array->count - 1; stream_idx >= 0; --stream_idx) {
-            free_usecases(&stream_array->streams[stream_idx]);
-            free_constants(&stream_array->streams[stream_idx]);
-        }
-        dyn_array_free(&cm->stream_array);
+        free_stream_array(&cm->anon_stream_array);
+        free_stream_array(&cm->named_stream_array);
 
         if (cm->mixer) {
             mixer_close(cm->mixer);
