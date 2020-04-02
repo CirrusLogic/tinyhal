@@ -47,7 +47,8 @@ import org.junit.runners.Suite;
     ThcmStreamAttributesTest.class,
     ThcmStreamMatchingTest.class,
     ThcmStreamConstantsTest.class,
-    ThcmStreamInstanceTest.class
+    ThcmStreamInstanceTest.class,
+    ThcmCodecProbeTest.class
 })
 public class ThcmUnitTest {
 }
