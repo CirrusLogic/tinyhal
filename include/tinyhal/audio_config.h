@@ -47,8 +47,8 @@ enum stream_type {
 /** Information about a stream */
 struct hw_stream {
     enum stream_type    type : 8;
-    uint8_t             card_number;
-    uint8_t             device_number;
+    unsigned int        card_number;
+    unsigned int        device_number;
     unsigned int        rate;
     unsigned int        period_size;
     unsigned int        period_count;
