@@ -146,14 +146,22 @@ int get_stream_constant_string(const struct hw_stream *stream,
                                 const char *name, char const **value);
 
 /** Return the value of a constant defined by a <set> element as an unsigned
- * integer
+ * 32-bit integer
  * @return      0 on success
  * @return      -ENOSYS if the constant does not exist
  * @return      -EINVAL if the constant cannot be interpreted as an integer
  */
 int get_stream_constant_uint32(const struct hw_stream *stream,
-                                const char *name, uint32_t *value);
+                               const char *name, uint32_t *value);
 
+/** Return the value of a constant defined by a <set> element as a signed
+ * 32-bit integer
+ * @return      0 on success
+ * @return      -ENOSYS if the constant does not exist
+ * @return      -EINVAL if the constant cannot be interpreted as an integer
+ */
+int get_stream_constant_int32(const struct hw_stream *stream,
+                              const char *name, int32_t *value);
 
 /** Test whether a named custom stream is defined */
 bool is_named_stream_defined(struct config_mgr *cm, const char *name);

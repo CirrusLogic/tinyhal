@@ -1046,6 +1046,28 @@ int get_stream_constant_uint32(const struct hw_stream *stream,
     return ret;
 }
 
+int get_stream_constant_int32(const struct hw_stream *stream,
+                              const char *name, int32_t *value)
+{
+    const char *string = NULL;
+    int val = 0;
+    int ret = get_stream_constant_string(stream, name, &string);
+
+    if (!ret) {
+        ret = string_to_int(&val, string);
+        if (ret != 0) {
+            return ret;
+        }
+        /* pick up out-of-range on 64-bit machines */
+        if ((sizeof(int) > sizeof(int32_t)) &&
+            ((val > 0x7FFFFFFF) || (-val > 0x7FFFFFFF))) {
+            return -EINVAL;
+        }
+        *value = val;
+    }
+
+    return ret;
+}
 
 /*********************************************************************
  * Config file parsing
