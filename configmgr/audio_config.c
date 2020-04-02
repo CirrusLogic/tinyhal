@@ -60,8 +60,6 @@ typedef struct effect_interface_s **effect_handle_t;
 #include "../include/tinyhal/audio_config.h"
 
 #define MIXER_CARD_DEFAULT 0
-#define PCM_DEVICE_DEFAULT 0
-#define COMPRESS_DEVICE_DEFAULT 0
 
 /* The dynamic arrays are extended in multiples of this number of objects */
 #define DYN_ARRAY_GRANULE 16
@@ -2347,7 +2345,7 @@ static int parse_stream_start(struct parse_state *state)
     bool out;
     bool global;
     uint32_t card = state->mixer_card_number;
-    uint32_t device = 0;  /* avoid false unassigned-value warnings */
+    uint32_t device = UINT_MAX;
     uint32_t maxref = INT_MAX;
     struct stream *s;
 
@@ -2395,10 +2393,8 @@ static int parse_stream_start(struct parse_state *state)
         s->info.type = out ? e_stream_out_hw : e_stream_in_hw;
     } else if (0 == strcmp(type, "pcm")) {
         s->info.type = out ? e_stream_out_pcm : e_stream_in_pcm;
-        device = PCM_DEVICE_DEFAULT;
     } else if (0 == strcmp(type, "compress")) {
         s->info.type = out ? e_stream_out_compress : e_stream_in_compress;
-        device = COMPRESS_DEVICE_DEFAULT;
     } else {
         ALOGE("'%s' not a valid stream type", type);
         return -EINVAL;
