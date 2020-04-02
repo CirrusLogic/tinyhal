@@ -16,6 +16,10 @@
 
 #define LOG_TAG "tiny_hal_config"
 
+/* For asprintf */
+#define _GNU_SOURCE
+
+#include <limits.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -28,6 +32,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <linux/limits.h>
 #ifdef ANDROID
 #include <cutils/log.h>
 #include <cutils/compiler.h>
@@ -65,8 +70,10 @@ typedef struct effect_interface_s **effect_handle_t;
 
 #define INVALID_CTL_INDEX 0xFFFFFFFFUL
 
+#ifdef ANDROID
 #ifndef ETC_PATH
 #define ETC_PATH "/system/etc"
+#endif
 #endif
 
 struct config_mgr;
@@ -151,7 +158,7 @@ struct codec_case {
 
 struct codec_probe {
     const char *file;
-    char *new_xml_file;           /* To store the the new xml file after parsing the codec_probe */
+    const char *new_xml_file;
     struct dyn_array codec_case_array;
 };
 
@@ -347,6 +354,42 @@ static int make_byte_work_buffer(struct ctl *pctl, uint32_t buffer_size);
 static int make_byte_array(struct ctl *c, uint32_t vnum);
 static const char *debug_device_to_name(uint32_t device);
 static void free_ctl_array(struct dyn_array *ctl_array);
+
+/*
+ * Utility function to join a filename to a base path. This doesn't bother to
+ * strip . and .. components.
+ */
+static char *join_paths(const char *base, const char *file, int strip_leaf)
+{
+    size_t base_len;
+    char *p;
+
+    if (!base) {
+        base_len = 0;
+    } else if (strip_leaf) {
+        /* Strip trailing filename part of base */
+        p = strrchr(base, '/');
+        if (!p) {
+            /* No path component */
+            base_len = 0;
+        } else {
+            /* Take the part up to but not including the / */
+            base_len = p - base;
+        }
+    } else {
+        /* Normalize to not include a trailing / */
+        base_len = strlen(base);
+        if (base[base_len - 1] == '/') {
+            --base_len;
+        }
+    }
+
+    if (asprintf(&p, "%.*s/%s", (int)base_len, base, file) < 0) {
+        return NULL;
+    }
+
+    return p;
+}
 
 /*********************************************************************
  * Routing control
@@ -1548,7 +1591,6 @@ static void codec_probe_free(struct parse_state *state)
     free((void*)state->cur_xml_file);
     state->cur_xml_file = NULL;
 
-    free((void*)state->init_probe.new_xml_file);
     state->init_probe.new_xml_file = NULL;
 
     dyn_array_free(array);
@@ -1840,14 +1882,29 @@ fail:
     return ret;
 }
 
-
 static int parse_codec_case_start(struct parse_state * state)
 {
     const char *codec = strdup(state->attribs.value[e_attrib_name]);
-    const char *file = strdup(state->attribs.value[e_attrib_file]);
+    const char *file = state->attribs.value[e_attrib_file];
     struct dyn_array *array = &state->current.codec_probe->codec_case_array;
     struct codec_case  *cc = NULL;
     int ret = 0;
+
+    while (isspace(*file)) {
+        ++file;
+    }
+
+    if (file[0] == '/') {
+        /* Absolute path: use as-is. */
+        file = strdup(file);
+    } else {
+        /* Relative to location of current XML file: get full path. */
+        file = join_paths(state->cur_xml_file, file, 1);
+    }
+
+    if (!file) {
+        return -ENOMEM;
+    }
 
     cc = new_codec_case(array, codec, file);
     if (cc == NULL) {
@@ -1941,9 +1998,11 @@ static char *probe_trim_spaces(char *str)
 static int probe_config_file(struct parse_state *state)
 {
     int i;
-    char buf[40], name[80], *codec;
+    char buf[40], *codec;
     FILE *fp;
     int ret;
+
+    ALOGV("+probe_config_file");
 
     fp = fopen(state->init_probe.file, "r");
     while (fp == NULL) {
@@ -1958,7 +2017,6 @@ static int probe_config_file(struct parse_state *state)
     }
 
     codec = probe_trim_spaces(buf);
-    free((void*)state->init_probe.new_xml_file);
     state->init_probe.new_xml_file = NULL;
 
     for (i = 0; i < (int)state->init_probe.codec_case_array.count; ++i)
@@ -1975,20 +2033,20 @@ static int probe_config_file(struct parse_state *state)
         goto exit;
     }
 
-    snprintf(name, sizeof(name), "%s/%s", ETC_PATH, state->init_probe.codec_case_array.codec_cases[i].file);
-    state->init_probe.new_xml_file = strdup(name);
+    state->init_probe.new_xml_file = state->init_probe.codec_case_array.codec_cases[i].file;
 
     if (strcmp(state->init_probe.new_xml_file, state->cur_xml_file) == 0) {
-        /*There is no new xml file to redirect */
-        free((void*)state->init_probe.new_xml_file);
+        /* There is no new xml file to redirect */
         state->init_probe.new_xml_file = NULL;
         XML_StopParser(state->parser,false);
         ALOGE("A codec probe case can't redirect to its own config file");
         ret = -EINVAL;
     } else {
-        /* We are Stopping the Parser as we got new codec xml file
-        * And we will restart the parser with that new file
-        */
+        /*
+         * We are stopping the Parser as we got new codec xml file
+         * and we will restart the parser with that new file
+         */
+        ALOGV("Got new config file %s", state->init_probe.new_xml_file);
         XML_StopParser(state->parser,XML_TRUE);
         ret = 0;
     }
@@ -2860,7 +2918,6 @@ static int parse_config_file(struct config_mgr *cm, const char *file_name)
             free((void*)state->init_probe.file);
             state->init_probe.file = NULL;
             XML_ParserReset(state->parser, NULL);
-            free((void*)state->init_probe.new_xml_file);
             state->init_probe.new_xml_file = NULL;
         }
 
@@ -2878,6 +2935,7 @@ static int parse_config_file(struct config_mgr *cm, const char *file_name)
                 fclose(state->file);
             }
 
+            ALOGV("Opening new XML file");
             ret = open_config_file(state, state->init_probe.new_xml_file);
         }
     } while (state->init_probe.new_xml_file != NULL);
@@ -2901,6 +2959,8 @@ fail:
 
 struct config_mgr *init_audio_config(const char *config_file_name)
 {
+    char *cwd_path;
+    char *absolute_path = NULL;
     int ret;
 
     struct config_mgr* mgr = new_config_mgr();
@@ -2909,7 +2969,40 @@ struct config_mgr *init_audio_config(const char *config_file_name)
     enableCoverageSignal();
 #endif
 
+    /*
+     * If path is relative, make it absolute so it can be used to
+     * create the base path for any codec_probe redirections that are
+     * specified as relative.
+     */
+    while (isspace(*config_file_name)) {
+        ++config_file_name;
+    }
+
+    if (config_file_name[0] != '/') {
+#ifdef ANDROID
+        absolute_path = join_paths(ETC_PATH, config_file_name, 0);
+#else
+        /*
+         * realpath() will cause links to be pre-resolved now, prefer getcwd()
+         * which leaves links to be resolved at the time the file is opened.
+         */
+        cwd_path = malloc(sizeof(char) * PATH_MAX);
+        if (getcwd(cwd_path, PATH_MAX) == NULL) {
+            ret = errno;
+            free(cwd_path);
+            errno = ret;
+            return NULL;
+        }
+
+        absolute_path = join_paths(cwd_path, config_file_name, 0);
+        free(cwd_path);
+#endif
+
+        config_file_name = absolute_path;
+    }
+
     ret = parse_config_file(mgr, config_file_name);
+    free(absolute_path);
     if (ret != 0) {
         free(mgr);
         errno = -ret;
