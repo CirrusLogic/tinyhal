@@ -2687,7 +2687,13 @@ static int do_parse(struct parse_state *state)
 
         eof = feof(state->file);
 
-        XML_Parse(state->parser, state->read_buf, len, eof);
+        if (XML_Parse(state->parser,
+                      state->read_buf,
+                      len,
+                      eof) == XML_STATUS_SUSPENDED) {
+            /* A codec_probe redirection suspends parsing of the current file */
+            break;
+        }
         if (parse_log_error(state) < 0) {
             ret = -EINVAL;
             break;
