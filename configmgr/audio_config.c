@@ -2059,8 +2059,24 @@ exit:
 
 static int parse_codec_probe_start(struct parse_state *state)
 {
-    const char *file = strdup(state->attribs.value[e_attrib_file]);
+    const char *file = state->attribs.value[e_attrib_file];
     int ret = 0;
+
+    while (isspace(*file)) {
+        ++file;
+    }
+
+    if (file[0] == '/') {
+        /* Absolute path: use as-is. */
+        file = strdup(file);
+    } else {
+        /* Relative to location of current XML file: get full path. */
+        file = join_paths(state->cur_xml_file, file, 1);
+    }
+
+    if (!file) {
+        return -ENOMEM;
+    }
 
     if (state->init_probe.file == NULL) {
         state->init_probe.file = file;
