@@ -1,0 +1,6 @@
+<audiohal>
+<mixer card="0" />
+<stream name="global" type="hw">
+<set name="thing" val="Mallard"/>
+</stream>
+</audiohal>

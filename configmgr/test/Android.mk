@@ -95,12 +95,26 @@ LOCAL_STATIC_JAVA_LIBRARIES := \
 LOCAL_JAVA_LIBRARIES := \
     android.test.runner
 
-LOCAL_REQUIRED_MODULES := libcom.cirrus.tinyhal.test.thcm_jni
+LOCAL_REQUIRED_MODULES := \
+    libcom.cirrus.tinyhal.test.thcm_jni \
+    thcm_root_xml_config.xml
 
 # Proguard strips modules used indirectly by modules we use
 # and then complains that they are missing
 LOCAL_PROGUARD_ENABLED := disabled
 
 include $(BUILD_PACKAGE)
+
+######################################################################
+# Install test config files to etc
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := thcm_root_xml_config.xml
+LOCAL_PROPRIETARY_MODULE := true
+LOCAL_SRC_FILES := data/android/thcm_root_xml_config.xml
+LOCAL_MODULE_CLASS := ETC
+LOCAL_MODULE_TAGS := optional
+#LOCAL_MODULE_PATH := $(TARGET_OUT_VENDOR)/etc
+include $(BUILD_PREBUILT)
 
 endif

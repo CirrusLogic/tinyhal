@@ -29,6 +29,9 @@ import java.nio.file.Path;
  */
 public class ThcmPlatform
 {
+    private static final File SYSTEM_ETC_PATH = new File("/system/etc");
+    private static final File VENDOR_ETC_PATH = new File("/vendor/etc");
+
     /**
      * Path the tests can use for temporary files created during the test.
      * This is returned as a File object because it is more generally usable
@@ -42,4 +45,34 @@ public class ThcmPlatform
         return ctx.getCacheDir().toPath().toAbsolutePath().normalize().toFile();
     }
 
+    /**
+     * Path that configmgr looks in for root config file if it is not given
+     * an absolute path.
+     * For Android builds this is either /system/etc or /vendor/etc.
+     * This is returned as a File object because it is more generally usable
+     * than a Path object.
+     *
+     * @return File object representing the path
+     */
+    public static File defaultSystemConfigPath()
+    {
+        if (VENDOR_ETC_PATH.exists()) {
+            return VENDOR_ETC_PATH;
+        } else {
+            return SYSTEM_ETC_PATH;
+        }
+    }
+
+    /**
+     * Report whether test files in system config directory are pre-installed.
+     * If the path returned by defaultSystemConfigPath() is not writeable at
+     * runtime the test files located there will have been populated at build
+     * time.
+     *
+     * @return true if the files have been pre-installed.
+     */
+    public static boolean isSystemConfigPathPrePopulated()
+    {
+        return true;
+    }
 };

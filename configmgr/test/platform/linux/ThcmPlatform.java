@@ -21,6 +21,8 @@ package com.cirrus.tinyhal.test.thcm;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.lang.String;
 
 /**
@@ -50,5 +52,32 @@ public class ThcmPlatform
         }
 
         return sWorkPath;
+    }
+
+    /**
+     * Path that configmgr looks in for root config file if it is not given
+     * an absolute path.
+     * This is only meaningful on Android builds. For GNU/Linux this is the
+     * current working directory, which is NOT the same as workFilesPath().
+     *
+     * @return File object representing the path
+     */
+    public static File defaultSystemConfigPath()
+    {
+        Path cwd = Paths.get("").toAbsolutePath().normalize();
+        return cwd.toFile();
+    }
+
+    /**
+     * Report whether test files in system config directory are pre-installed.
+     * If the path returned by defaultSystemConfigPath() is not writeable at
+     * runtime the test files located there will have been populated at build
+     * time.
+     *
+     * @return true if the files have been pre-installed.
+     */
+    public static boolean isSystemConfigPathPrePopulated()
+    {
+        return false;
     }
 };
