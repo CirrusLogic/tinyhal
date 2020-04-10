@@ -2920,7 +2920,10 @@ static void free_usecases( struct stream *stream )
         for (i = puc->case_array.count; i > 0; i--, pcase++) {
             free((void *)pcase->name);
         }
+        dyn_array_free(&puc->case_array);
     }
+
+    dyn_array_free(&stream->usecase_array);
 }
 
 static void free_constants( struct stream *stream )
@@ -2932,6 +2935,8 @@ static void free_constants( struct stream *stream )
         free((void *)pc->name);
         free((void *)pc->value);
     }
+
+    dyn_array_free(&stream->constants_array);
 }
 
 void free_audio_config( struct config_mgr *cm )
