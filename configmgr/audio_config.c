@@ -1800,7 +1800,6 @@ static int parse_ctl_start(struct parse_state *state)
         ret = -ENOMEM;
         goto fail;
     }
-    c->name = name;
 
     if (attrib_to_uint(&c->index, state, e_attrib_index) == -EINVAL) {
         ALOGE("Invalid ctl index");
