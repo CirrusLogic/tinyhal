@@ -109,6 +109,7 @@ public class ThcmInitControlsTest
         if (mConfigMgr != null) {
             mConfigMgr.free_audio_config();
             mConfigMgr = null;
+            assertFalse("Configmgr leaked memory", CConfigMgr.are_allocs_leaked());
         }
 
         if (mAlsaMock != null) {

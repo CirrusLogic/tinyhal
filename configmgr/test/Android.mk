@@ -27,7 +27,9 @@ LOCAL_MODULE := libcom.cirrus.tinyhal.test.thcm_jni
 LOCAL_MODULE_TAGS := optional
 LOCAL_PROPRIETARY_MODULE := true
 
-LOCAL_CFLAGS += -Werror -Wno-error=unused-parameter -Wno-unused-parameter
+LOCAL_CFLAGS += \
+	-Werror -Wno-error=unused-parameter -Wno-unused-parameter \
+	-DTHCM_TEST_HARNESS_BUILD
 
 # tinyalsa include path won't be picked up magically because we aren't
 # linking to it, so we must point at the (expected) header location
@@ -41,6 +43,7 @@ LOCAL_C_INCLUDES += \
 LOCAL_SRC_FILES := \
 	harness/jni/CAlsaMock.cpp \
 	harness/jni/jniwrapper.cpp \
+	harness/jni/alloc_hooks.cpp \
 	../audio_config.c
 
 LOCAL_SHARED_LIBRARIES := \

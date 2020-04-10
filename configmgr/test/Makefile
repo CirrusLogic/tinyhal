@@ -35,7 +35,7 @@ JAVADOC_OUT_PATH = javadoc
 
 # Local C++ compiler and linker options
 LOCAL_CXXFLAGS = -std=c++17 -fPIC -Wall -Wextra -Wunused
-LOCAL_CFLAGS = -fPIC -Wall -Wextra -Wunused
+LOCAL_CFLAGS = -fPIC -Wall -Wextra -Wunused -DTHCM_TEST_HARNESS_BUILD
 LOCAL_GENDEPS_FLAGS = -MM
 LOCAL_JNI_LIBS = -lexpat
 LOCAL_LDFLAGS = -shared

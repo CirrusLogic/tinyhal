@@ -50,6 +50,8 @@ typedef struct effect_interface_s **effect_handle_t;
 #include <hardware/audio.h>
 #endif
 
+#include "thcm_test_harness.h"
+
 #ifdef ENABLE_COVERAGE
 #include <coverage.h>
 #endif

@@ -260,4 +260,7 @@ public class CConfigMgr
     public native final void apply_route(long stream, long devices);
 
     public native final int set_hw_volume(long stream, int left_pc, int right_pc);
+
+    // Not part of the configmgr API but convenient to add it here
+    public static native final boolean are_allocs_leaked();
 };

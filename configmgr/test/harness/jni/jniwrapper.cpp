@@ -46,6 +46,8 @@
 #include "com_cirrus_tinyhal_test_thcm_CConfigMgr.h"
 #endif
 
+#include "alloc_hooks.h"
+
 #ifndef __unused
 #define __unused __attribute__((__unused__))
 #endif
@@ -882,6 +884,13 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_set_1hw_1volume(JNIEnv *env,
     return set_hw_volume(s, left_pc, right_pc);
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_are_1allocs_1leaked(JNIEnv *env __unused,
+                                                                 jclass clazz __unused)
+{
+    return cirrus::harness_are_allocs_leaked();
+}
+
 #ifdef ANDROID
 static const char kAlsaMockClassPathName[] = "com.cirrus.tinyhal.test.thcm.CAlsaMock";
 
@@ -1038,6 +1047,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "set_hw_volume",
       "(JII)I",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_set_1hw_1volume
+    },
+    { "are_allocs_leaked",
+      "()Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_are_1allocs_1leaked
     },
 };
 
