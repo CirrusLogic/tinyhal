@@ -1675,7 +1675,7 @@ static int make_byte_array(struct ctl *c, uint32_t vnum)
     uint8_t *pdatablock = NULL;
     uint8_t *bytes;
     int count;
-    char *p;
+    char *p, *savep;
     uint32_t v;
     int ret;
 
@@ -1690,9 +1690,9 @@ static int make_byte_array(struct ctl *c, uint32_t vnum)
     }
 
     /* get number of entries in value string by counting commas */
-    p = strtok(str, ",");
+    p = strtok_r(str, ",", &savep);
     for (count = 0; p != NULL; count++) {
-        p = strtok(NULL, ",");
+        p = strtok_r(NULL, ",", &savep);
     }
 
     if (count == 0) {
@@ -1719,7 +1719,7 @@ static int make_byte_array(struct ctl *c, uint32_t vnum)
     strcpy(str,val_str);
     bytes = pdatablock;
 
-    for (p = strtok(str, ","); p != NULL;) {
+    for (p = strtok_r(str, ",", &savep); p != NULL;) {
         ret = string_to_uint(&v, p);
         if (ret != 0) {
             goto fail;
@@ -1727,7 +1727,7 @@ static int make_byte_array(struct ctl *c, uint32_t vnum)
         ALOGE_IF(v > 0xFF, "Byte out of range");
 
         *bytes++ = (uint8_t)v;
-        p = strtok(NULL, ",");
+        p = strtok_r(NULL, ",", &savep);
     }
 
     free(str);
