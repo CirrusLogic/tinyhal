@@ -1937,7 +1937,8 @@ static int probe_config_file(struct parse_state *state)
 {
     int i;
     char buf[40], name[80], *codec;
-    FILE *fp = NULL;
+    FILE *fp;
+    int ret;
 
     fp = fopen(state->init_probe.file, "r");
     while (fp == NULL) {
@@ -1947,7 +1948,8 @@ static int probe_config_file(struct parse_state *state)
 
     if (fgets(buf,sizeof(buf),fp) == NULL) {
         ALOGE("I/O error reading codec probe file");
-        return -EIO;
+        ret = -EIO;
+        goto exit;
     }
 
     codec = probe_trim_spaces(buf);
@@ -1964,7 +1966,8 @@ static int probe_config_file(struct parse_state *state)
 
     if (i == (int)state->init_probe.codec_case_array.count) {
         ALOGE("Codec probe file not found");
-        return 0;
+        ret = 0;
+        goto exit;
     }
 
     snprintf(name, sizeof(name), "%s/%s", ETC_PATH, state->init_probe.codec_case_array.codec_cases[i].file);
@@ -1976,15 +1979,19 @@ static int probe_config_file(struct parse_state *state)
         state->init_probe.new_xml_file = NULL;
         XML_StopParser(state->parser,false);
         ALOGE("A codec probe case can't redirect to its own config file");
-        return -EINVAL;
+        ret = -EINVAL;
     } else {
         /* We are Stopping the Parser as we got new codec xml file
         * And we will restart the parser with that new file
         */
         XML_StopParser(state->parser,XML_TRUE);
+        ret = 0;
     }
 
-    return 0;
+exit:
+    fclose(fp);
+
+    return ret;
 }
 
 static int parse_codec_probe_start(struct parse_state *state)
