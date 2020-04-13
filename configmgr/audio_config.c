@@ -346,6 +346,7 @@ static int get_value_from_file(struct ctl *c, uint32_t vnum);
 static int make_byte_work_buffer(struct ctl *pctl, uint32_t buffer_size);
 static int make_byte_array(struct ctl *c, uint32_t vnum);
 static const char *debug_device_to_name(uint32_t device);
+static void free_ctl_array(struct dyn_array *ctl_array);
 
 /*********************************************************************
  * Routing control
@@ -2724,8 +2725,8 @@ static void cleanup_parser(struct parse_state *state)
 
         codec_probe_free(state);
 
-        dyn_array_free(&state->init_path.ctl_array);
-        dyn_array_free(&state->preinit_path.ctl_array);
+        free_ctl_array(&state->init_path.ctl_array);
+        free_ctl_array(&state->preinit_path.ctl_array);
 
         if (state->parser) {
             XML_ParserFree(state->parser);
