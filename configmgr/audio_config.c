@@ -2992,10 +2992,13 @@ static void free_constants( struct stream *stream )
 static void free_stream_array(struct dyn_array *stream_array)
 {
     int stream_idx;
+    struct stream *s;
 
     for(stream_idx = stream_array->count - 1; stream_idx >= 0; --stream_idx) {
-        free_usecases(&stream_array->streams[stream_idx]);
-        free_constants(&stream_array->streams[stream_idx]);
+        s = &stream_array->streams[stream_idx];
+        free((void *)s->name);
+        free_usecases(s);
+        free_constants(s);
     }
 
     dyn_array_free(stream_array);
