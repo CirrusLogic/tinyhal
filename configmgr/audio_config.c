@@ -2907,6 +2907,42 @@ struct mixer *get_mixer( const struct config_mgr *cm )
     return cm->mixer;
 }
 
+static void free_ctl_array(struct dyn_array *ctl_array)
+{
+    struct ctl *c;
+    int ctl_idx;
+
+    for (ctl_idx = ctl_array->count - 1; ctl_idx >= 0; --ctl_idx) {
+        c = &ctl_array->ctls[ctl_idx];
+        /* The name attribute is mandatory for controls */
+        free((void *)c->name);
+
+        switch (c->type) {
+        /*
+         * The val attribute has been freed for the BOOL/INT
+         * types of controls
+         */
+        case MIXER_CTL_TYPE_BOOL:
+        case MIXER_CTL_TYPE_INT:
+            break;
+        /*
+         * The val attribute has been converted to byte array
+         * for the BYTE type of controls
+         */
+        case MIXER_CTL_TYPE_BYTE:
+            free((void *)c->value.data);
+            free((void *)c->buffer);
+            free((void *)c->data_file_name);
+            break;
+        default:
+            free((void *)c->value.string);
+            break;
+        }
+    }
+
+    dyn_array_free(ctl_array);
+}
+
 static void free_usecases( struct stream *stream )
 {
     struct usecase *puc = stream->usecase_array.usecases;
@@ -2919,6 +2955,7 @@ static void free_usecases( struct stream *stream )
         pcase = puc->case_array.cases;
         for (i = puc->case_array.count; i > 0; i--, pcase++) {
             free((void *)pcase->name);
+            free_ctl_array(&pcase->ctl_array);
         }
         dyn_array_free(&puc->case_array);
     }
@@ -2941,9 +2978,8 @@ static void free_constants( struct stream *stream )
 
 void free_audio_config( struct config_mgr *cm )
 {
-    struct dyn_array *path_array, *ctl_array, *stream_array;
-    int dev_idx, path_idx, ctl_idx, stream_idx;
-    struct ctl *c;
+    struct dyn_array *path_array, *stream_array;
+    int dev_idx, path_idx, stream_idx;
 
     if (cm) {
         /* Free all devices */
@@ -2951,37 +2987,7 @@ void free_audio_config( struct config_mgr *cm )
             /* Free all paths in device */
             path_array = &cm->device_array.devices[dev_idx].path_array;
             for (path_idx = path_array->count - 1; path_idx >= 0; --path_idx) {
-                /* Free all ctls in path */
-                ctl_array = &path_array->paths[path_idx].ctl_array;
-                for (ctl_idx = ctl_array->count - 1; ctl_idx >= 0; --ctl_idx) {
-                    c = &ctl_array->ctls[ctl_idx];
-                    /* The name attribute is mandatory for controls */
-                    free((void *)c->name);
-
-                    switch (c->type) {
-                    /*
-                     * The val attribute has been freed for the BOOL/INT
-                     * types of controls
-                     */
-                    case MIXER_CTL_TYPE_BOOL:
-                    case MIXER_CTL_TYPE_INT:
-                        break;
-                    /*
-                     * The val attribute has been converted to byte array
-                     * for the BYTE type of controls
-                     */
-                    case MIXER_CTL_TYPE_BYTE:
-                        free((void *)c->value.data);
-                        free((void *)c->buffer);
-                        free((void *)c->data_file_name);
-                        break;
-                    default:
-                        free((void *)c->value.string);
-                        break;
-                    }
-                }
-
-                dyn_array_free(ctl_array);
+                free_ctl_array(&path_array->paths[path_idx].ctl_array);
             }
 
             dyn_array_free(path_array);
