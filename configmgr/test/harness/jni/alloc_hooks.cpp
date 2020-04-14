@@ -187,6 +187,27 @@ void harness_free(void* p)
     free(p);
 }
 
+FILE* harness_fopen(const char* name, const char* attr, int line)
+{
+    FILE* fp = fopen(name, attr);
+    int err = errno;
+
+    std::lock_guard<std::mutex> _l(gAllocSetMutex);
+    add_address_l(fp, line);
+
+    errno = err;
+
+    return fp;
+}
+
+void harness_fclose(FILE* fp)
+{
+    fclose(fp);
+
+    std::lock_guard<std::mutex> _l(gAllocSetMutex);
+    remove_address_l(fp);
+}
+
 } // extern "C"
 } // namespace cirrus
 

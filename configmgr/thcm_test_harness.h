@@ -26,12 +26,17 @@ extern char* harness_strdup(const char* s, int line);
 extern int harness_asprintf(char** dest, const char* fmt, int c, const char* s1,
                             const char* s2, int line);
 extern void harness_free(void* p);
+extern FILE* harness_fopen(const char* name, const char* attr, int line);
+extern void harness_fclose(FILE* fp);
+
 #define malloc(x) harness_malloc(x, __LINE__)
 #define calloc(n,m) harness_calloc(n, m, __LINE__)
 #define realloc(p,n) harness_realloc(p, n,__LINE__)
 #define strdup(s) harness_strdup(s, __LINE__)
 #define asprintf(d, f, c, p, q) harness_asprintf(d, f, c, p, q, __LINE__)
 #define free(x) harness_free(x)
+#define fopen(n, a) harness_fopen(n, a, __LINE__)
+#define fclose(f) harness_fclose(f)
 #endif /* ifdef THCM_TEST_HARNESS_BUILD */
 
 #endif /* ifndef THCM_TEST_HARNESS_H */
