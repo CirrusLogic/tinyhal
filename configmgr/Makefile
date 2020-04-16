@@ -5,7 +5,7 @@ INCLUDEDIRS=$(foreach p,$(EXTRA_C_INCLUDE_PATHS),-I$p)
 
 # CC, LD and RM are assumed to be predefined or the default overridden by user
 
-CFLAGS+=-fPIC -Wall -Wextra -Wunused
+CFLAGS+=-fPIC -Wall -Wextra -Wunused -O2
 LDFLAGS+=-shared
 
 LOCAL_INCLUDE_PATH = ../include
