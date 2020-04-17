@@ -766,18 +766,14 @@ void apply_route( const struct hw_stream *stream, uint32_t devices )
  *********************************************************************/
 
 static int set_vol_ctl(struct stream *stream,
-                       const struct stream_control *volctl, uint percent)
+                       const struct stream_control *volctl,
+                       int percent)
 {
     struct mixer_ctl *ctl = ctl_get_ptr(stream->cm, &volctl->ref);
     int val;
     long long lmin;
     long long lmax;
     long long lval;
-
-    if (percent > 100) {
-        ALOGE("Volume percent %u is >100", percent);
-        return -EINVAL;
-    }
 
     switch (percent) {
     case 0:
@@ -804,6 +800,16 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
 {
     struct stream *s = (struct stream *)stream;
     int ret = -ENOSYS;
+
+    if ((left_pc < 0) || (left_pc > 100)) {
+        ALOGE("Volume percent %d is out of range 0..100", left_pc);
+        return -EINVAL;
+    }
+
+    if ((right_pc < 0) || (right_pc > 100)) {
+        ALOGE("Volume percent %d is out of range 0..100", right_pc);
+        return -EINVAL;
+    }
 
     if (ctl_ref_valid(&s->controls.volume_left.ref)) {
         if (!ctl_ref_valid(&s->controls.volume_right.ref)) {
