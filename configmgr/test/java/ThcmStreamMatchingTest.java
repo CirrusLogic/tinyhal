@@ -310,4 +310,18 @@ public class ThcmStreamMatchingTest
         checkExpectedControlChange(mTestControlName);
     }
 
+    /**
+     * Test is_named_stream_defined()
+     */
+    @Test
+    public void testIsNamedStreamDefined()
+    {
+        assertFalse("Reported non-existent stream as existing",
+                    mConfigMgr.is_named_stream_defined("fiddlesticks"));
+
+        if (mStreamName != null) {
+            assertTrue("Stream " + mStreamName + "was not reported as existing",
+                       mConfigMgr.is_named_stream_defined(mStreamName));
+        }
+    }
 };

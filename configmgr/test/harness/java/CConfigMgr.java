@@ -251,6 +251,8 @@ public class CConfigMgr
     public native final long get_stream_constant_uint32(long stream, String name);
     public native final long get_stream_constant_int32(long stream, String name);
 
+    public native final boolean is_named_stream_defined(String name);
+
     public native final int release_stream(long stream);
 
     public native final long get_current_routes(long stream);

@@ -808,6 +808,24 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1int32(JNIEnv
     return v;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_is_1named_1stream_1defined(JNIEnv *env,
+                                                                        jobject thiz,
+                                                                        jstring name)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        throwRuntimeException(env, "No manager pointer");
+    }
+
+    TStringUtfAutoReleased c_name(env, name);
+    if (!c_name.isOk()) {
+        throwRuntimeException(env, "Bad constant name");
+    }
+
+    return is_named_stream_defined(ptr, c_name.c_str());
+}
+
 JNIEXPORT jint JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_release_1stream(JNIEnv *env,
                                                              jobject thiz,
@@ -1073,6 +1091,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "get_stream_constant_int32",
       "(JLjava/lang/String;)J",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1stream_1constant_1int32,
+    },
+    { "is_named_stream_defined",
+      "(Ljava/lang/String;)Z",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_is_1named_1stream_1defined,
     },
     { "release_stream",
       "(J)I",
