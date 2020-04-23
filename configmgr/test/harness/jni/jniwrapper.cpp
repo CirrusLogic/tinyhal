@@ -171,17 +171,32 @@ Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_native_1setup(JNIEnv *env __unused,
     ALOGV("%s complete", __func__);
 }
 
+JNIEXPORT void JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_setRedirectedProcPath(JNIEnv *env,
+                                                                  jclass clazz __unused,
+                                                                  jstring path)
+{
+    TStringUtfAutoReleased c_path(env, path);
+    if (!c_path.isOk()) {
+        throwRuntimeException(env, "bad path string");
+    }
+
+    cirrus::harnessSetRedirectedProcPath(std::string(c_path.c_str()));
+}
+
 JNIEXPORT jint JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_createMixer(JNIEnv *env,
                                                         jobject thiz,
-                                                        jstring fileName)
+                                                        jstring fileName,
+                                                        jint cardNum)
 {
     TStringUtfAutoReleased c_fileName(env, fileName);
     if (!c_fileName.isOk()) {
         return -EINVAL;
     }
 
-    std::unique_ptr<cirrus::CAlsaMock> mocker = std::make_unique<cirrus::CAlsaMock>();
+    std::unique_ptr<cirrus::CAlsaMock> mocker =
+        std::make_unique<cirrus::CAlsaMock>(static_cast<unsigned int>(cardNum));
     int ret = mocker->readFromFile(c_fileName.c_str());
     if (ret != 0) {
         return ret;
@@ -204,6 +219,13 @@ Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_closeMixer(JNIEnv *env, jobject thiz
     setMockPointer(env, thiz, nullptr);
 
     ALOGV("%s complete", __func__);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_getMixerPointer(JNIEnv *env,
+                                                            jobject thiz)
+{
+    return reinterpret_cast<jlong>(getMockPointer(env, thiz));
 }
 
 JNIEXPORT jboolean JNICALL
@@ -600,6 +622,18 @@ Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_free_1audio_1config(JNIEnv *env,
 }
 
 JNIEXPORT jlong JNICALL
+Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1mixer(JNIEnv *env,
+                                                        jobject thiz)
+{
+    auto* ptr = getMgrPointer(env, thiz);
+    if (!ptr) {
+        return 0;
+    }
+
+    return reinterpret_cast<jlong>(get_mixer(ptr));
+}
+
+JNIEXPORT jlong JNICALL
 Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1supported_1input_1devices(JNIEnv *env,
                                                                             jobject thiz)
 {
@@ -899,13 +933,21 @@ static const JNINativeMethod kAlsaMockMethods[] = {
       "()V",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_native_1setup
     },
+    { "setRedirectedProcPath",
+      "(Ljava/lang/String;)V",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_setRedirectedProcPath
+    },
     { "createMixer",
-      "(Ljava/lang/String;)I",
+      "(Ljava/lang/String;I)I",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_createMixer
     },
     { "closeMixer",
       "()V",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_closeMixer
+    },
+    { "getMixerPointer",
+      "()J",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CAlsaMock_getMixerPointer
     },
     { "isChanged",
       "(Ljava/lang/String;)Z",
@@ -999,6 +1041,10 @@ static const JNINativeMethod kConfigMgrMethods[] = {
     { "free_audio_config",
       "()I",
       (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_free_1audio_1config
+    },
+    { "get_mixer",
+      "()J",
+      (void *)Java_com_cirrus_tinyhal_test_thcm_CConfigMgr_get_1mixer
     },
     { "get_supported_input_devices",
       "()J",

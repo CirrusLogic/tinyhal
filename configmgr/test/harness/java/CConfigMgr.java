@@ -237,6 +237,8 @@ public class CConfigMgr
 
     public native final int init_audio_config(String config_file_name);
     public native final int free_audio_config();
+    public native final long get_mixer();
+
     public native final long get_supported_input_devices();
     public native final long get_supported_output_devices();
 

@@ -16,8 +16,10 @@
  * limitations under the License.
  */
 
+#include <string>
+
 namespace cirrus {
 
 bool harness_are_allocs_leaked();
-
+void harnessSetRedirectedProcPath(const std::string& name);
 } // namespace cirrus

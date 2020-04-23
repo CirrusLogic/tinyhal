@@ -28,6 +28,8 @@ extern int harness_asprintf(char** dest, const char* fmt, int c, const char* s1,
 extern void harness_free(void* p);
 extern FILE* harness_fopen(const char* name, const char* attr, int line);
 extern void harness_fclose(FILE* fp);
+extern DIR* harness_opendir(const char* name, int line);
+extern void harness_closedir(DIR* dir);
 
 #define malloc(x) harness_malloc(x, __LINE__)
 #define calloc(n,m) harness_calloc(n, m, __LINE__)
@@ -37,6 +39,8 @@ extern void harness_fclose(FILE* fp);
 #define free(x) harness_free(x)
 #define fopen(n, a) harness_fopen(n, a, __LINE__)
 #define fclose(f) harness_fclose(f)
+#define opendir(n) harness_opendir(n, __LINE__)
+#define closedir(d) harness_closedir(d)
 #endif /* ifdef THCM_TEST_HARNESS_BUILD */
 
 #endif /* ifndef THCM_TEST_HARNESS_H */

@@ -151,7 +151,8 @@ public class ThcmStreamAttributesTest
 
         assertEquals("Failed to create CAlsaMock",
                      0,
-                     mAlsaMock.createMixer(sControlsFile.toPath().toString()));
+                     mAlsaMock.createMixer(sControlsFile.toPath().toString(),
+                                           TEST_MIXER_CARD_NUMBER));
 
         assertEquals("Failed to open CConfigMgr",
                      0,

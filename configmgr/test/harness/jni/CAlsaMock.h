@@ -97,19 +97,24 @@ private:
 class CAlsaMock
 {
 public:
-    CAlsaMock();
+    CAlsaMock(unsigned int cardNum);
     ~CAlsaMock();
 
     int readFromFile(const std::string& fileName);
     void dump() const;
 
+    unsigned int cardNumber() const { return mCardNumber; }
     size_t numControls() const { return mControls.size(); }
     CMockControl* getControlByName(const std::string& name);
     CMockControl* getControlById(unsigned int id);
 
 private:
+    const unsigned int mCardNumber;
     std::map<std::string, std::shared_ptr<CMockControl>> mControls;
     std::vector<std::shared_ptr<CMockControl>> mControlsById;
+
+private:
+    CAlsaMock();
 };
 
 } // namespace cirrus

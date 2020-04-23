@@ -23,6 +23,7 @@ import java.lang.Throwable;
 
 public class CAlsaMock
 {
+    private final int DEFAULT_CARD_NUMBER = 0;
     private final long mNativeMixerPtr = 0;
 
     static {
@@ -34,10 +35,18 @@ public class CAlsaMock
         native_setup();
     }
 
+    public int createMixer(String controlsFileName)
+    {
+        return createMixer(controlsFileName, DEFAULT_CARD_NUMBER);
+    }
+
     private native final void native_setup();
 
-    public native final int createMixer(String controlsFileName);
+    public static native final void setRedirectedProcPath(String path);
+
+    public native final int createMixer(String controlsFileName, int cardNum);
     public native final void closeMixer();
+    public native final long getMixerPointer();
 
     public native final boolean isChanged(String controlName);
     public native final void clearChangedFlag(String controlName);

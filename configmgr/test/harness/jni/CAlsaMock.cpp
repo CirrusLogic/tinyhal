@@ -247,7 +247,8 @@ void CMockControl::dump() const
     ALOGV("%s", s.str().c_str());
 }
 
-CAlsaMock::CAlsaMock()
+CAlsaMock::CAlsaMock(unsigned int cardNum)
+    : mCardNumber(cardNum)
 {
     gAlsaMock = this;
 }
@@ -418,7 +419,12 @@ CMockControl* CAlsaMock::getControlById(unsigned int id)
 extern "C" {
 struct mixer *mixer_open(unsigned int card)
 {
-    (void)card;
+    if (gAlsaMock->cardNumber() != card) {
+        // tinyalsa would fail to fopen() the controlCn file so would return
+        // ENOENT error
+        errno = ENOENT;
+        return nullptr;
+    }
 
     return reinterpret_cast<struct mixer*>(gAlsaMock);
 }

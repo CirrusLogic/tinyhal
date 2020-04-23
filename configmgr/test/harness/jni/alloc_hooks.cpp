@@ -22,8 +22,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <map>
 #include <mutex>
+#include <string>
 
 #include "alloc_hooks.h"
 
@@ -38,6 +40,13 @@ namespace cirrus {
 static std::mutex gAllocSetMutex;
 static std::map<void*, int> gAllocMap;
 static bool gSawAlloc;
+
+std::string gRedirectedProcPath;
+
+void harnessSetRedirectedProcPath(const std::string& name)
+{
+    gRedirectedProcPath = name;
+}
 
 #ifndef ANDROID
 class BadFreeException : public std::exception
@@ -189,6 +198,14 @@ void harness_free(void* p)
 
 FILE* harness_fopen(const char* name, const char* attr, int line)
 {
+    std::string newName;
+
+    // This is a hack to redirect /proc/asound/ requests during testing
+    if (strstr(name, "/proc/asound") == name) {
+        newName = gRedirectedProcPath + name;
+        name = newName.c_str();
+    }
+
     FILE* fp = fopen(name, attr);
     int err = errno;
 
@@ -206,6 +223,35 @@ void harness_fclose(FILE* fp)
 
     std::lock_guard<std::mutex> _l(gAllocSetMutex);
     remove_address_l(fp);
+}
+
+DIR* harness_opendir(const char* name, int line)
+{
+    std::string newName;
+
+    // This is a hack to redirect /proc/asound requests during testing
+    if (strstr(name, "/proc/asound") == name) {
+        newName = gRedirectedProcPath + name;
+        name = newName.c_str();
+    }
+
+    DIR* dir = opendir(name);
+    int err = errno;
+
+    std::lock_guard<std::mutex> _l(gAllocSetMutex);
+    add_address_l(dir, line);
+
+    errno = err;
+
+    return dir;
+}
+
+void harness_closedir(DIR* dir)
+{
+    closedir(dir);
+
+    std::lock_guard<std::mutex> _l(gAllocSetMutex);
+    remove_address_l(dir);
 }
 
 } // extern "C"
