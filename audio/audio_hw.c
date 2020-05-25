@@ -2080,6 +2080,14 @@ static int adev_get_microphones(const struct audio_hw_device *dev,
 }
 #endif
 
+#ifdef AUDIO_DEVICE_API_VERSION_5_0
+static int in_get_active_microphones(const struct audio_stream_in *stream,
+                                     struct audio_microphone_characteristic_t *mic_array,
+                                     size_t *mic_count) {
+    return adev_get_microphones(NULL, mic_array, mic_count);
+}
+#endif
+
 /*********************************************************************
  * Stream open and close
  *********************************************************************/
@@ -2221,6 +2229,10 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     }
 
     in->common.dev = adev;
+
+#ifdef AUDIO_DEVICE_API_VERSION_5_0
+    in->common.stream.get_active_microphones = in_get_active_microphones;
+#endif
 
     devices &= AUDIO_DEVICE_IN_ALL;
     ret = do_init_in_common(&in->common, config, devices);
