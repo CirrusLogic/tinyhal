@@ -48,6 +48,7 @@
 #endif
 
 #include <audio_utils/resampler.h>
+#include <audio_utils/channels.h>
 
 #include <tinyhal/audio_config.h>
 
@@ -56,6 +57,23 @@
 #ifdef ENABLE_STHAL_STREAMS
 #include <vendor/cirrus/scchal/scc_audio.h>
 #endif
+
+#ifdef PLATFORM_RCAR3
+/* R-Car3 driver supports only 8-channel streams and 48000 sample rate */
+/* These values are defined in _frames_ (not bytes) to match the ALSA API */
+#define OUT_PERIOD_SIZE_DEFAULT 256
+#define OUT_PERIOD_COUNT_DEFAULT 4
+#define OUT_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_OUT_7POINT1
+#define OUT_CHANNEL_COUNT_DEFAULT 8
+#define OUT_RATE_DEFAULT 48000
+
+#define IN_PERIOD_SIZE_DEFAULT 256
+#define IN_PERIOD_COUNT_DEFAULT 4
+#define IN_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_IN_STEREO
+#define IN_CHANNEL_COUNT_DEFAULT 8
+#define IN_RATE_DEFAULT 48000
+
+#else
 
 /* These values are defined in _frames_ (not bytes) to match the ALSA API */
 #define OUT_PERIOD_SIZE_DEFAULT 256
@@ -69,6 +87,8 @@
 #define IN_CHANNEL_MASK_DEFAULT AUDIO_CHANNEL_IN_MONO
 #define IN_CHANNEL_COUNT_DEFAULT 1
 #define IN_RATE_DEFAULT 44100
+
+#endif
 
 #define IN_PCM_BUFFER_SIZE_DEFAULT \
         (IN_PERIOD_SIZE_DEFAULT * IN_CHANNEL_COUNT_DEFAULT * sizeof(uint16_t))
@@ -234,6 +254,9 @@ struct stream_in_pcm {
     uint32_t period_size;       /* ... of PCM input */
 
     struct in_resampler resampler;
+
+    void *pre_read_buf;         /* Buffer to store read data before channel adjustment*/
+    size_t pre_read_buf_size;
 };
 
 static uint32_t out_get_sample_rate(const struct audio_stream *stream);
@@ -1660,6 +1683,11 @@ static unsigned int in_pcm_cfg_rate(struct stream_in_pcm *in)
 
 static unsigned int in_pcm_cfg_channel_count(struct stream_in_pcm *in)
 {
+#ifdef PLATFORM_RCAR3
+    /* On R-Car3 driver supports only 8 channels reading */
+    return IN_CHANNEL_COUNT_DEFAULT;
+#endif
+
     if (in->common.channel_count != 0) {
         return in->common.channel_count;
     } else {
@@ -1741,6 +1769,22 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 
     ALOGV("input buffer size=0x%zx", in->common.buffer_size);
 
+    if (in->common.channel_count != in->hw_channel_count) {
+        ALOGV("Setup buffer to read %d channel stream with adjustment (HW only supports %d channel reading)",
+              in->common.channel_count, in->hw_channel_count);
+        in->pre_read_buf_size = in->common.buffer_size * in->hw_channel_count / in->common.channel_count;
+        ALOGV("in->pre_read_buf_size=0x%zx", in->pre_read_buf_size);
+        in->pre_read_buf = calloc(1, in->pre_read_buf_size);
+        if (!in->pre_read_buf) {
+            ret = -ENOMEM;
+            goto fail;
+        }
+    }
+    else {
+    	in->pre_read_buf = NULL;
+    	in->pre_read_buf_size = 0;
+    }
+
     /*
      * If the stream rate differs from the PCM rate, we need to
      * create a resampler.
@@ -1758,6 +1802,8 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 fail:
     pcm_close(in->pcm);
     in->pcm = NULL;
+    if (in->pre_read_buf)
+        free(in->pre_read_buf);
 exit:
     ALOGV("-do_open_pcm_input error:%d", ret);
     return ret;
@@ -1864,6 +1910,8 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void *buffer,
     int ret = 0;
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
     size_t frames_rq = bytes / in->common.frame_size;
+    void *read_buf;
+    size_t read_buf_size;
 
     ALOGV("+do_in_pcm_read %zu", bytes);
 
@@ -1874,10 +1922,39 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void *buffer,
         goto exit;
     }
 
-    if (in->resampler.resampler != NULL) {
-        ret = read_resampled_frames(in, buffer, frames_rq);
+    if (in->pre_read_buf) {
+    	read_buf = in->pre_read_buf;
+    	read_buf_size = in->pre_read_buf_size;
     } else {
-        ret = pcm_read(in->pcm, buffer, bytes);
+    	read_buf = buffer;
+    	read_buf_size = bytes;
+    }
+
+    if (in->resampler.resampler != NULL) {
+        ret = read_resampled_frames(in, read_buf, frames_rq);
+    } else {
+        ret = pcm_read(in->pcm, read_buf, read_buf_size);
+    }
+
+    if (ret < 0)
+    	goto exit;
+
+    if (in->common.channel_count != in->hw_channel_count) {
+
+        ALOGV("do_in_pcm_read(): Adjust %d channel read stream to %d channel stream",
+              in->hw_channel_count, in->common.channel_count);
+
+        bytes = adjust_channels(read_buf, /* Input buffer */
+                                in->hw_channel_count, /* Input channel count */
+                                buffer, /* Output buffer */
+                                in->common.channel_count, /* Output channel count */
+                                in->common.frame_size / in->common.channel_count, /* Sample size */
+                                read_buf_size /* Size of input buffer in bytes */
+                               );
+        if (!bytes) {
+        	ALOGE("do_in_pcm_read(): Failed to adjust channels");
+        	ret = -1;
+        }
     }
 
     /* Assume any non-negative return is a successful read */
@@ -2014,6 +2091,14 @@ out:
 static void do_close_in_pcm(struct audio_stream *stream)
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
+
+    ALOGV("do_close_in_pcm(%p)", in);
+    if (in && in->pre_read_buf)
+    {
+    	free(in->pre_read_buf);
+    	in->pre_read_buf = NULL;
+    	in->pre_read_buf_size = 0;
+    }
 
     do_close_in_common(stream);
 }

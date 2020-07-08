@@ -76,6 +76,10 @@ ifeq ($(strip $(TINYHAL_COMPRESS_PLAYBACK)),true)
 LOCAL_CFLAGS += -DTINYHAL_COMPRESS_PLAYBACK
 endif
 
+ifeq ($(TARGET_DEVICE),kingfisher)
+LOCAL_CFLAGS += -DPLATFORM_RCAR3
+endif
+
 include $(BUILD_SHARED_LIBRARY)
 
 endif
