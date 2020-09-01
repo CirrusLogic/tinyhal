@@ -257,6 +257,7 @@ enum attrib_index {
     e_attrib_index,
     e_attrib_dir,
     e_attrib_card,
+    e_attrib_cardname,
     e_attrib_device,
     e_attrib_instances,
     e_attrib_rate,
@@ -276,8 +277,8 @@ typedef int(*elem_fn)(struct parse_state *state);
 
 struct parse_element {
     const char      *name;
-    uint16_t        valid_attribs;  /* bitflags of valid attribs for this element */
-    uint16_t        required_attribs;   /* bitflags of attribs that must be present */
+    uint32_t        valid_attribs;  /* bitflags of valid attribs for this element */
+    uint32_t        required_attribs;   /* bitflags of attribs that must be present */
     uint16_t        valid_subelem;  /* bitflags of valid sub-elements */
     elem_fn         start_fn;
     elem_fn         end_fn;
@@ -1142,7 +1143,7 @@ static const struct parse_element elem_table[e_elem_count] = {
     [e_elem_stream] =    {
         .name = "stream",
         .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_type)
-                            | BIT(e_attrib_dir) | BIT(e_attrib_card)
+                            | BIT(e_attrib_dir) | BIT(e_attrib_card) | BIT(e_attrib_cardname)
                             | BIT(e_attrib_device) | BIT(e_attrib_instances)
                             | BIT(e_attrib_rate) | BIT(e_attrib_period_size)
                             | BIT(e_attrib_period_count),
@@ -1273,6 +1274,7 @@ static const struct parse_attrib attrib_table[e_attrib_count] = {
     [e_attrib_index] =      {"index"},
     [e_attrib_dir] =        {"dir"},
     [e_attrib_card] =       {"card"},
+    [e_attrib_cardname] =   {"cardname"},
     [e_attrib_device] =     {"device"},
     [e_attrib_instances] =  {"instances"},
     [e_attrib_rate] =       {"rate"},
@@ -2367,6 +2369,8 @@ static int parse_stream_ctl_start(struct parse_state *state)
     return 0;
 }
 
+static int get_card_id_for_name(const char* name, uint32_t *id);
+
 static int parse_stream_start(struct parse_state *state)
 {
     const char *type = state->attribs.value[e_attrib_type];
@@ -2430,7 +2434,18 @@ static int parse_stream_start(struct parse_state *state)
         return -EINVAL;
     }
 
+    if (state->attribs.value[e_attrib_cardname] != NULL &&
+        state->attribs.value[e_attrib_card] != NULL) {
+        ALOGE("stream must be configured by only one of 'card' OR 'cardname'. Both provided.");
+        return -EINVAL;
+    }
+
     if (attrib_to_uint(&card, state, e_attrib_card) == -EINVAL) {
+        return -EINVAL;
+    }
+
+    if (state->attribs.value[e_attrib_cardname] != NULL &&
+        get_card_id_for_name(state->attribs.value[e_attrib_cardname], &card) != 0) {
         return -EINVAL;
     }
 
