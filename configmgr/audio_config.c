@@ -3040,7 +3040,7 @@ struct config_mgr *init_audio_config(const char *config_file_name)
     ret = parse_config_file(mgr, config_file_name);
     free(absolute_path);
     if (ret != 0) {
-        free(mgr);
+        free_audio_config(mgr);
         errno = -ret;
         return NULL;
     }
