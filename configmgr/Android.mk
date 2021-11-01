@@ -27,7 +27,7 @@ LOCAL_CFLAGS += -Werror -Wno-error=unused-parameter -Wno-unused-parameter
 
 LOCAL_C_INCLUDES += \
 	external/tinycompress/include \
-	external/tinyalsa/include \
+	external/tinyalsa_new/include \
 	external/expat/lib \
 	$(call include-path-for, audio-utils)
 
@@ -42,7 +42,7 @@ LOCAL_SHARED_LIBRARIES := \
 	liblog	\
 	libhardware \
 	libexpat	\
-	libtinyalsa	\
+	libtinyalsav2	\
 
 ifeq ($(strip $(TINYALSA_NO_ADD_NEW_CTRLS)),true)
 LOCAL_CFLAGS += -DTINYALSA_NO_ADD_NEW_CTRLS
