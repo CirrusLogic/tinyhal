@@ -251,7 +251,7 @@ static int stream_invoke_usecases(const struct hw_stream *stream, const char *kv
     char value[32];
     int ret;
 
-    ALOGV("+stream_invoke_usecases(%p) '%s'", stream, kvpairs);
+    ALOGI("+stream_invoke_usecases(%p) '%s'", stream, kvpairs);
 
     parms = strdup(kvpairs);
     if (!parms) {
@@ -318,7 +318,7 @@ static uint32_t out_get_sample_rate(const struct audio_stream *stream)
         rate = out->hw->rate;
     }
 
-    ALOGV("out_get_sample_rate=%u", rate);
+    ALOGI("out_get_sample_rate=%u", rate);
     return rate;
 }
 
@@ -330,7 +330,7 @@ static int out_set_sample_rate(struct audio_stream *stream, uint32_t rate)
 static size_t out_get_buffer_size(const struct audio_stream *stream)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
-    ALOGV("out_get_buffer_size(%p): %u", stream, out->buffer_size);
+    ALOGI("out_get_buffer_size(%p): %u", stream, out->buffer_size);
     return out->buffer_size;
 }
 
@@ -345,14 +345,14 @@ static audio_channel_mask_t out_get_channels(const struct audio_stream *stream)
         mask = OUT_CHANNEL_MASK_DEFAULT;
     }
 
-    ALOGV("out_get_channels=%x", mask);
+    ALOGI("out_get_channels=%x", mask);
     return mask;
 }
 
 static audio_format_t out_get_format(const struct audio_stream *stream)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
-    /*ALOGV("out_get_format(%p): 0x%x", stream, out->format);*/
+    /*ALOGI("out_get_format(%p): 0x%x", stream, out->format);*/
     return out->format;
 }
 
@@ -368,7 +368,7 @@ static int out_dump(const struct audio_stream *stream, int fd)
 
 static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
 {
-    ALOGV("+out_set_parameters(%p) '%s'", stream, kvpairs);
+    ALOGI("+out_set_parameters(%p) '%s'", stream, kvpairs);
 
     struct stream_out_common *out = (struct stream_out_common *)stream;
     struct audio_device *adev = out->dev;
@@ -376,18 +376,22 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
     int ret;
 
     ret = common_get_routing_param(&v, kvpairs);
+    ALOGI("ret=%d, num kvpairs=%d,kvpairs='%s'", ret, v, kvpairs);
 
     pthread_mutex_lock(&adev->lock);
 
     if (ret >= 0) {
+        ALOGI("APPLYING ROUTE");
+
         apply_route(out->hw, v);
+        ALOGI("Applied ROUTEEEEE");
     }
 
     stream_invoke_usecases(out->hw, kvpairs);
 
     pthread_mutex_unlock(&adev->lock);
 
-    ALOGV("-out_set_parameters(%p)", out);
+    ALOGI("-out_set_parameters(%p)", out);
 
     /*
      * It's meaningless to return an error here - it's not an error if
@@ -449,7 +453,7 @@ static void get_audio_format(struct str_parms *str_parms,
 static char *out_get_parameters(const struct audio_stream *stream,
                                 const char *keys)
 {
-    ALOGV("+out_get_parameters(%p) '%s'", stream, keys);
+    ALOGI("+out_get_parameters(%p) '%s'", stream, keys);
 
     struct stream_out_common *out = (struct stream_out_common *)stream;
     struct str_parms *query = str_parms_create_str(keys);
@@ -464,7 +468,7 @@ static char *out_get_parameters(const struct audio_stream *stream,
     str_parms_destroy(query);
     str_parms_destroy(reply);
 
-    ALOGV("-out_get_parameters(%p) '%s'", stream, keys);
+    ALOGI("-out_get_parameters(%p) '%s'", stream, keys);
     return str;
 }
 
@@ -499,7 +503,7 @@ static int out_set_volume(struct audio_stream_out *stream, float left, float rig
     int l_pc = volume_to_percent(left);
     int r_pc = volume_to_percent(right);
 
-    ALOGV("out_set_volume (%f,%f) -> (%d%%,%d%%)", left, right, l_pc, r_pc);
+    ALOGI("out_set_volume (%f,%f) -> (%d%%,%d%%)", left, right, l_pc, r_pc);
 
     return set_hw_volume(out->hw, l_pc, r_pc);
 }
@@ -601,7 +605,7 @@ static int do_init_out_common(struct stream_out_common *out,
 {
     int ret;
 
-    ALOGV("do_init_out_common rate=%u channels=%x",
+    ALOGI("do_init_out_common rate=%u channels=%x",
                 config->sample_rate,
                 config->channel_mask);
 
@@ -683,7 +687,7 @@ static unsigned int out_pcm_cfg_channel_count(struct stream_out_pcm *out)
 /* Must be called with hw device and output stream mutexes locked */
 static void do_out_pcm_standby(struct stream_out_pcm *out)
 {
-    ALOGV("+do_out_standby(%p)", out);
+    ALOGI("+do_out_standby(%p)", out);
 
     if (!out->common.standby) {
         pcm_close(out->pcm);
@@ -691,7 +695,7 @@ static void do_out_pcm_standby(struct stream_out_pcm *out)
         out->common.standby = true;
     }
 
-    ALOGV("-do_out_standby(%p)", out);
+    ALOGI("-do_out_standby(%p)", out);
 }
 
 static int pcm_format_from_android_format(audio_format_t format)
@@ -741,7 +745,7 @@ static int start_output_pcm(struct stream_out_pcm *out)
         .silence_threshold = 0
     };
 
-    ALOGV("+start_output_stream(%p)", out);
+    ALOGI("+start_output_stream(%p)", out);
 
     out->pcm = pcm_open(out->common.hw->card_number,
                         out->common.hw->device_number,
@@ -756,7 +760,7 @@ static int start_output_pcm(struct stream_out_pcm *out)
 
     out_pcm_fill_params(out, &config);
 
-    ALOGV("-start_output_stream(%p)", out);
+    ALOGI("-start_output_stream(%p)", out);
     return 0;
 }
 
@@ -774,7 +778,7 @@ static int out_pcm_standby(struct audio_stream *stream)
 static ssize_t out_pcm_write(struct audio_stream_out *stream, const void *buffer,
                              size_t bytes)
 {
-    ALOGV("+out_pcm_write(%p) l=%zu", stream, bytes);
+    //ALOGI("+out_pcm_write(%p) l=%zu", stream, bytes);
 
     int ret = 0;
     struct stream_out_pcm *out = (struct stream_out_pcm *)stream;
@@ -786,7 +790,7 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream, const void *buffer
      * sure that the driver will accept a write to nowhere
      */
     if (get_current_routes(out->common.hw) == 0) {
-        ALOGV("-out_pcm_write(%p) 0 (no routes)", stream);
+        ALOGI("-out_pcm_write(%p) 0 (no routes)", stream);
         return 0;
     }
 
@@ -800,12 +804,12 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream, const void *buffer
     }
 
     ret = pcm_write(out->pcm, buffer, bytes);
-    ALOGV_IF(ret < 0, "out_pcm_write: pcm_write failed: %d", ret);
+    ALOGI_IF(ret < 0, "out_pcm_write: pcm_write failed: %d", ret);
 
 exit:
     pthread_mutex_unlock(&out->common.lock);
 
-    ALOGV("-out_pcm_write(%p)", stream);
+    //ALOGI("-out_pcm_write(%p)", stream);
 
     // AudioFlinger doesn't like errors so always pretend we wrote all the bytes
 
@@ -850,7 +854,7 @@ static int do_standby_compress_l(struct stream_out_compress *out)
     int ret;
 
     if (out->compress && !out->paused) {
-        ALOGV("out_compress_standby(%p) not paused -closing compress\n", out);
+        ALOGI("out_compress_standby(%p) not paused -closing compress\n", out);
         if (out->started) {
             compress_stop(out->compress);
             out->started = false;
@@ -903,7 +907,7 @@ static int open_output_compress(struct stream_out_compress *out)
         compress_set_max_poll_wait(cmpr, MAX_COMPRESS_POLL_WAIT_MS);
         compress_nonblock(cmpr, out->common.use_async);
         out->common.buffer_size = config.fragment_size * config.fragments;
-        ALOGV("compressed buffer size=%u", out->common.buffer_size);
+        ALOGI("compressed buffer size=%u", out->common.buffer_size);
         out->compress = cmpr;
     }
 
@@ -943,7 +947,7 @@ static ssize_t out_compress_write(struct audio_stream_out *stream,
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
     int ret = 0;
 
-    ALOGV("out_compress_write(%p) %zu", stream, bytes);
+    ALOGI("out_compress_write(%p) %zu", stream, bytes);
 
     ret = open_output_compress(out);
 
@@ -979,7 +983,7 @@ static int out_compress_pause(struct audio_stream_out *stream)
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
     int ret = -EBADFD;
 
-    ALOGV("out_compress_pause(%p)", stream);
+    ALOGI("out_compress_pause(%p)", stream);
 
     /* Avoid race condition with standby */
     pthread_mutex_lock(&out->common.lock);
@@ -997,7 +1001,7 @@ static int out_compress_resume(struct audio_stream_out *stream)
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
     int ret = -EBADFD;
 
-    ALOGV("out_compress_resume(%p)", stream);
+    ALOGI("out_compress_resume(%p)", stream);
 
     /* Avoid race condition with standby */
     pthread_mutex_lock(&out->common.lock);
@@ -1015,7 +1019,7 @@ static int out_compress_drain(struct audio_stream_out *stream,
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
     int ret = 0;
 
-    ALOGV("out_compress_drain(%p)", stream);
+    ALOGI("out_compress_drain(%p)", stream);
 
     if (out->common.use_async) {
         ret = signal_async_thread(&out->common.async_common,
@@ -1043,7 +1047,7 @@ static int out_compress_flush(struct audio_stream_out *stream)
 {
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
 
-    ALOGV("out_compress_flush(%p)", stream);
+    ALOGI("out_compress_flush(%p)", stream);
 
     pthread_mutex_lock(&out->common.lock);
     if (out->compress && out->started) {
@@ -1070,7 +1074,7 @@ static int out_compress_get_render_position(const struct audio_stream_out *strea
         *dsp_frames = 0;
 
         if (!out->started) {
-            ALOGV("out_compress_get_render_position(%p) not started", stream);
+            ALOGI("out_compress_get_render_position(%p) not started", stream);
             return 0;
         }
 
@@ -1079,7 +1083,7 @@ static int out_compress_get_render_position(const struct audio_stream_out *strea
         if (out->started) {
             if (compress_get_tstamp(out->compress, &samples, &sampling_rate) == 0) {
                 *dsp_frames = samples;
-                ALOGV("compress(%p) render position=%u", stream, *dsp_frames);
+                ALOGI("compress(%p) render position=%u", stream, *dsp_frames);
             }
         }
 
@@ -1097,7 +1101,7 @@ static void *out_compress_async_fn(void *arg)
 
     while(!pW->exit) {
         pthread_mutex_lock(&(pW->mutex));
-        ALOGV("async fn wait for work");
+        ALOGI("async fn wait for work");
         pthread_cond_wait(&(pW->cv), &(pW->mutex));
 
         if (pW->exit) {
@@ -1110,7 +1114,7 @@ static void *out_compress_async_fn(void *arg)
 
         switch (mode) {
             case ASYNC_POLL:
-                ALOGV("ASYNC_POLL");
+                ALOGI("ASYNC_POLL");
 
                 compress_wait(out->compress, MAX_COMPRESS_POLL_WAIT_MS);
 
@@ -1121,7 +1125,7 @@ static void *out_compress_async_fn(void *arg)
 
             case ASYNC_EARLY_DRAIN:
             case ASYNC_FULL_DRAIN:
-                ALOGV("ASYNC_%s_DRAIN",
+                ALOGI("ASYNC_%s_DRAIN",
                             (mode == ASYNC_EARLY_DRAIN) ? "EARLY" : "FULL");
 
                 if (mode == ASYNC_EARLY_DRAIN) {
@@ -1159,7 +1163,7 @@ static void out_compress_close(struct audio_stream_out *stream)
 {
     struct stream_out_compress *out = (struct stream_out_compress *)stream;
 
-    ALOGV("out_compress_close(%p)", stream);
+    ALOGI("out_compress_close(%p)", stream);
 
     out->paused = false;
     out_compress_standby(&stream->common);
@@ -1175,7 +1179,7 @@ static int out_compress_set_parameters(struct audio_stream *stream, const char *
     int ret;
     bool need_refresh_gapless = false;
 
-    ALOGV("+out_compress_set_parameters(%p) '%s' ", stream, kv_pairs);
+    ALOGI("+out_compress_set_parameters(%p) '%s' ", stream, kv_pairs);
     parms = str_parms_create_str(kv_pairs);
     ret = str_parms_get_str(parms, AUDIO_OFFLOAD_CODEC_DELAY_SAMPLES,
                             value, sizeof(value));
@@ -1199,7 +1203,7 @@ static int out_compress_set_parameters(struct audio_stream *stream, const char *
 
     out_set_parameters(&out->common.stream.common, kv_pairs);
 
-    ALOGV("-out_compress_set_parameters(%p)", out);
+    ALOGI("-out_compress_set_parameters(%p)", out);
 
     /*
      * It's meaningless to return an error here - it's not an error if
@@ -1288,7 +1292,7 @@ static uint32_t in_get_sample_rate(const struct audio_stream *stream)
         rate = in->hw->rate;
     }
 
-    ALOGV("in_get_sample_rate=%u", rate);
+    ALOGI("in_get_sample_rate=%u", rate);
     return rate;
 }
 
@@ -1314,7 +1318,7 @@ static audio_channel_mask_t in_get_channels(const struct audio_stream *stream)
         mask = IN_CHANNEL_MASK_DEFAULT;
     }
 
-    ALOGV("in_get_channels=0x%x", mask);
+    ALOGI("in_get_channels=0x%x", mask);
     return mask;
 }
 
@@ -1333,7 +1337,7 @@ static int in_set_format(struct audio_stream *stream, audio_format_t format)
 static size_t in_get_buffer_size(const struct audio_stream *stream)
 {
     const struct stream_in_common *in = (struct stream_in_common *)stream;
-    ALOGV("in_get_buffer_size(%p): %zu", stream, in->buffer_size);
+    ALOGI("in_get_buffer_size(%p): %zu", stream, in->buffer_size);
     return in->buffer_size;
 }
 
@@ -1350,7 +1354,7 @@ static int in_set_parameters(struct audio_stream *stream, const char *kvpairs)
 static char *in_get_parameters(const struct audio_stream *stream,
                                const char *keys)
 {
-    ALOGV("+in_get_parameters(%p) '%s'", stream, keys);
+    ALOGI("+in_get_parameters(%p) '%s'", stream, keys);
 
     struct stream_in_common *in = (struct stream_in_common *)stream;
     struct str_parms *query = str_parms_create_str(keys);
@@ -1365,7 +1369,7 @@ static char *in_get_parameters(const struct audio_stream *stream,
     str_parms_destroy(query);
     str_parms_destroy(reply);
 
-    ALOGV("-in_get_parameters(%p) '%s'", stream, keys);
+    ALOGI("-in_get_parameters(%p) '%s'", stream, keys);
     return str;
 }
 
@@ -1670,7 +1674,7 @@ static unsigned int in_pcm_cfg_channel_count(struct stream_in_pcm *in)
 /* Must be called with hw device and input stream mutexes locked */
 static void do_in_pcm_standby(struct stream_in_pcm *in)
 {
-    ALOGV("+do_in_pcm_standby");
+    ALOGI("+do_in_pcm_standby");
 
     if (!in->common.standby) {
         pcm_close(in->pcm);
@@ -1680,7 +1684,7 @@ static void do_in_pcm_standby(struct stream_in_pcm *in)
     in_resampler_free(in);
     in->common.standby = true;
 
-    ALOGV("-do_in_pcm_standby");
+    ALOGI("-do_in_pcm_standby");
 }
 
 static void in_pcm_fill_params(struct stream_in_pcm *in,
@@ -1709,7 +1713,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
     struct pcm_config config;
     int ret;
 
-    ALOGV("+do_open_pcm_input");
+    ALOGI("+do_open_pcm_input");
 
     if (in->common.hw == NULL) {
         ALOGW("input_source not set");
@@ -1739,7 +1743,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 
     in_pcm_fill_params(in, &config);
 
-    ALOGV("input buffer size=0x%zx", in->common.buffer_size);
+    ALOGI("input buffer size=0x%zx", in->common.buffer_size);
 
     /*
      * If the stream rate differs from the PCM rate, we need to
@@ -1752,14 +1756,14 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
             goto fail;
         }
     }
-    ALOGV("-do_open_pcm_input");
+    ALOGI("-do_open_pcm_input");
     return 0;
 
 fail:
     pcm_close(in->pcm);
     in->pcm = NULL;
 exit:
-    ALOGV("-do_open_pcm_input error:%d", ret);
+    ALOGI("-do_open_pcm_input error:%d", ret);
     return ret;
 }
 
@@ -1794,7 +1798,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
     }
 
     if (in->common.input_source == new_source) {
-        ALOGV("input source not changed");
+        ALOGI("input source not changed");
         return 0;
     }
 
@@ -1824,7 +1828,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
     if (stream_name) {
         /* Try to open a stream specific to the chosen input source */
         hw = get_named_stream(in->common.dev->cm, stream_name);
-        ALOGV_IF(hw != NULL, "Changing input source to %s", stream_name);
+        ALOGI_IF(hw != NULL, "Changing input source to %s", stream_name);
     }
 
     if (!hw) {
@@ -1834,7 +1838,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         config.channel_mask = in->common.channel_mask;
         config.format = in->common.format;
         hw = get_stream(in->common.dev->cm, devices, 0, &config);
-        ALOGV_IF(hw != NULL, "Changing to default input source for devices 0x%x",
+        ALOGI_IF(hw != NULL, "Changing to default input source for devices 0x%x",
                         devices);
     }
 
@@ -1853,7 +1857,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
         *was_changed = true;
         return 0;
     } else {
-        ALOGV("Could not open new input stream");
+        ALOGI("Could not open new input stream");
         return -EINVAL;
     }
 }
@@ -1865,7 +1869,7 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void *buffer,
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
     size_t frames_rq = bytes / in->common.frame_size;
 
-    ALOGV("+do_in_pcm_read %zu", bytes);
+    ALOGI("+do_in_pcm_read %zu", bytes);
 
     pthread_mutex_lock(&in->common.lock);
     ret = start_pcm_input_stream(in);
@@ -1888,7 +1892,7 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void *buffer,
 exit:
     pthread_mutex_unlock(&in->common.lock);
 
-    ALOGV("-do_in_pcm_read (%d)", ret);
+    ALOGI("-do_in_pcm_read (%d)", ret);
     return ret;
 }
 
@@ -1918,7 +1922,7 @@ static ssize_t in_pcm_read(struct audio_stream_in *stream, void *buffer,
         ALOGW("in_pcm_read(%p): no input source for stream", stream);
         ret = -EINVAL;
     } else if (get_current_routes(in->common.hw) == 0) {
-        ALOGV("in_pcm_read(%p) (no routes)", stream);
+        ALOGI("in_pcm_read(%p) (no routes)", stream);
         ret = -EINVAL;
     } else {
         ret = do_in_pcm_read(stream, buffer, bytes);
@@ -1957,7 +1961,7 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
     bool input_was_changed;
     int ret;
 
-    ALOGV("+in_pcm_set_parameters(%p) '%s'", stream, kvpairs);
+    ALOGI("+in_pcm_set_parameters(%p) '%s'", stream, kvpairs);
 
     ret = common_get_routing_param(&new_routing, kvpairs);
     routing_changed = (ret >= 0);
@@ -1970,6 +1974,7 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
 
         if (routing_changed) {
             devices = new_routing;
+            ALOGI("new_routing=%d", new_routing);
         } else if (in->common.hw != NULL) {
             /* Route new stream to same devices as current stream */
             devices = get_current_routes(in->common.hw);
@@ -1991,7 +1996,7 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
         in->common.devices = new_routing;
 
         if (in->common.hw) {
-            ALOGV("Apply routing=0x%x to input stream", new_routing);
+            ALOGI("Apply routing=0x%x to input stream", new_routing);
             apply_route(in->common.hw, new_routing);
         }
     }
@@ -2002,7 +2007,7 @@ out:
     pthread_mutex_unlock(&in->common.lock);
     str_parms_destroy(parms);
 
-    ALOGV("-in_pcm_set_parameters(%p)", stream);
+    ALOGI("-in_pcm_set_parameters(%p)", stream);
 
     /*
      * It's meaningless to return an error here - it's not an error if
@@ -2060,7 +2065,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     } out;
     int ret;
 
-    ALOGV("+adev_open_output_stream: format %d, channel_mask=%04x, sample_rate %u flags 0x%x\n",
+    ALOGI("+adev_open_output_stream: format %d, channel_mask=%04x, sample_rate %u flags 0x%x\n",
           config->format, config->channel_mask, config->sample_rate, flags);
 
     devices &= AUDIO_DEVICE_OUT_ALL;
@@ -2112,14 +2117,14 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     config->sample_rate = out.common->sample_rate;
 
     *stream_out = &out.common->stream;
-    ALOGV("-adev_open_output_stream=%p", *stream_out);
+    ALOGI("-adev_open_output_stream=%p", *stream_out);
     return 0;
 
 err_open:
     free(out.common);
     *stream_out = NULL;
 err_fail:
-    ALOGV("-adev_open_output_stream (%d)", ret);
+    ALOGI("-adev_open_output_stream (%d)", ret);
     return ret;
 }
 
@@ -2127,7 +2132,7 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
                                      struct audio_stream_out *stream)
 {
     struct stream_out_common *out = (struct stream_out_common *)stream;
-    ALOGV("adev_close_output_stream(%p)", stream);
+    ALOGI("adev_close_output_stream(%p)", stream);
     (out->close)(stream);
 }
 
@@ -2147,9 +2152,9 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     struct stream_in_pcm *in = NULL;
     int ret;
 
-    ALOGV("+adev_open_input_stream");
+    ALOGI("+adev_open_input_stream");
 
-    ALOGV("Tinyhal opening input stream format %d, channel_mask=%04x, sample_rate %u"
+    ALOGI("Tinyhal opening input stream format %d, channel_mask=%04x, sample_rate %u"
           " flags 0x%x source 0x%x\n",
           config->format, config->channel_mask, config->sample_rate,
           flags, source);
@@ -2194,7 +2199,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 
 fail:
     free(in);
-    ALOGV("-adev_open_input_stream (%d)", ret);
+    ALOGI("-adev_open_input_stream (%d)", ret);
     return ret;
 }
 
@@ -2202,11 +2207,11 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
                                     struct audio_stream_in *stream)
 {
     struct stream_in_common *in = (struct stream_in_common *)stream;
-    ALOGV("adev_close_input_stream(%p)", stream);
+    ALOGI("adev_close_input_stream(%p)", stream);
 
 #ifdef ENABLE_STHAL_STREAMS
     if (cirrus_is_scc_stream(stream)) {
-        ALOGV("adev_close_input_stream: closing scc stream\n");
+        ALOGI("adev_close_input_stream: closing scc stream\n");
         cirrus_scc_close_stream(dev, stream);
         return;
     }
@@ -2347,7 +2352,7 @@ static int adev_open(const hw_module_t *module, const char *name,
     property_get("ro.product.device", property, "generic");
     snprintf(file_name, sizeof(file_name), "%s/audio.%s.xml", ETC_PATH, property);
 
-    ALOGV("Reading configuration from %s\n", file_name);
+    ALOGI("Reading configuration from %s\n", file_name);
     adev->cm = init_audio_config(file_name);
     if (!adev->cm) {
         ret = -errno;

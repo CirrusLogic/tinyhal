@@ -28,7 +28,7 @@
 enum {
     AUDIO_DEVICE_NONE                          = 0x0,
     /* reserved bits */
-    AUDIO_DEVICE_BIT_IN                        = 0x80000000,
+    AUDIO_DEVICE__AAABIT_IN                        = 0x80000000,
     AUDIO_DEVICE_BIT_DEFAULT                   = 0x40000000,
     /* output devices */
     AUDIO_DEVICE_OUT_EARPIECE                  = 0x1,

@@ -33,22 +33,17 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <linux/limits.h>
-#ifdef ANDROID
+
 #include <cutils/log.h>
 #include <cutils/compiler.h>
 #include <system/audio.h>
-#else
-#include "audio_logging.h"
-#endif
 
 /* Workaround for linker error if audio_effect.h is included in multiple
  * source files. Prevent audio.h including it */
 #define ANDROID_AUDIO_EFFECT_H
 struct effect_interface_s;
 typedef struct effect_interface_s **effect_handle_t;
-#ifdef ANDROID
 #include <hardware/audio.h>
-#endif
 
 #include "thcm_test_harness.h"
 
@@ -68,10 +63,8 @@ typedef struct effect_interface_s **effect_handle_t;
 
 #define INVALID_CTL_INDEX 0xFFFFFFFFUL
 
-#ifdef ANDROID
 #ifndef ETC_PATH
 #define ETC_PATH "/system/etc"
-#endif
 #endif
 
 struct config_mgr;
@@ -489,11 +482,11 @@ static int ctl_open(struct config_mgr *cm, struct ctl *pctl)
             ALOGE_IF((ctl_type == MIXER_CTL_TYPE_BOOL)
                      && ((unsigned int)pctl->value.integer > 1),
                      "WARNING: Illegal value for bool control");
-            ALOGV("Added ctl '%s' value 0x%x", pctl->name, pctl->value.integer);
+            ALOGI("Added ctl '%s' value 0x%x", pctl->name, pctl->value.integer);
             break;
 
         case MIXER_CTL_TYPE_ENUM:
-            ALOGV("Added ctl '%s' value '%s'", pctl->name, pctl->value.string);
+            ALOGI("Added ctl '%s' value '%s'", pctl->name, pctl->value.string);
             break;
 
         case MIXER_CTL_TYPE_IEC958:
@@ -518,7 +511,7 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
     unsigned int value_count;
     int err = 0;
 
-    ALOGV("+apply_ctls_l");
+    ALOGI("+apply_ctls_l");
 
     for (i = 0; i < ctl_count; ++i, ++pctl) {
         if (ctl_open(cm, pctl) != 0) {
@@ -532,7 +525,7 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
             case MIXER_CTL_TYPE_INT:
                 value_count = mixer_ctl_get_num_values(ctl);
 
-                ALOGV("apply ctl '%s' = 0x%x (%d values)",
+                ALOGI("apply ctl '%s' = 0x%x (%d values)",
                                         mixer_ctl_get_name(ctl),
                                         pctl->value.integer,
                                         value_count);
@@ -556,7 +549,7 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
                 /* byte array */
                 vnum = mixer_ctl_get_num_values(ctl);
 
-                ALOGV("apply ctl '%s' = byte data (%d bytes)",
+                ALOGI("apply ctl '%s' = byte data (%d bytes)",
                                         mixer_ctl_get_name(ctl),
                                         vnum);
 
@@ -576,7 +569,7 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
                 break;
 
             case MIXER_CTL_TYPE_ENUM:
-                ALOGV("apply ctl '%s' to '%s'",
+                ALOGI("apply ctl '%s' to '%s'",
                                             mixer_ctl_get_name(ctl),
                                             pctl->value.string);
 
@@ -592,35 +585,35 @@ static void apply_ctls_l(struct config_mgr *cm, struct ctl *pctl, const int ctl_
         }
     }
 
-    ALOGV("-apply_ctls_l");
+    ALOGI("-apply_ctls_l");
 }
 
 static void apply_path_l(struct config_mgr *cm, struct path *path)
 {
-    ALOGV("+apply_path_l(%p) id=%u", path, path->id);
+    ALOGI("+apply_path_l(%p) id=%u", path, path->id);
 
     apply_ctls_l(cm, path->ctl_array.ctls, path->ctl_array.count);
 
-    ALOGV("-apply_path_l(%p)", path);
+    ALOGI("-apply_path_l(%p)", path);
 }
 
 static void apply_device_path_l(struct config_mgr *cm, struct device *pdev,
                                     struct path *path)
 {
-    ALOGV("+apply_device_path_l(%p) id=%u", path, path->id);
+    ALOGI("+apply_device_path_l(%p) id=%u", path, path->id);
 
     /* The on and off paths for a device are reference-counted */
     switch (path->id) {
     case e_path_id_off:
         if (--pdev->use_count > 0) {
-            ALOGV("Device still in use - not applying 'off' path");
+            ALOGI("Device still in use - not applying 'off' path");
             return;
         }
         break;
 
      case e_path_id_on:
         if (++pdev->use_count > 1) {
-            ALOGV("Device already enabled - not applying 'on' path");
+            ALOGI("Device already enabled - not applying 'on' path");
             return;
         }
         break;
@@ -631,7 +624,7 @@ static void apply_device_path_l(struct config_mgr *cm, struct device *pdev,
 
     apply_path_l(cm, path);
 
-    ALOGV("-apply_device_path_l(%p)", path);
+    ALOGI("-apply_device_path_l(%p)", path);
 }
 
 static void apply_paths_by_id_l(struct config_mgr *cm, struct device *pdev,
@@ -641,7 +634,7 @@ static void apply_paths_by_id_l(struct config_mgr *cm, struct device *pdev,
     struct path *found_paths[2] = {0};
     int path_count = pdev->path_array.count;
 
-    ALOGV("Applying paths [first=%u second=%u] to device(@%p, mask=0x%x '%s')",
+    ALOGI("Applying paths [first=%u second=%u] to device(@%p, mask=0x%x '%s')",
                 first_id, second_id, ppath, pdev->type, debug_device_to_name(pdev->type));
 
     /* To save time we find both paths in a single walk of the list */
@@ -677,7 +670,7 @@ static void apply_paths_to_devices_l(struct config_mgr *cm, uint32_t devices,
     const uint32_t input_flag = devices & AUDIO_DEVICE_BIT_IN;
 
     /* invoke path path_id on all struct device matching devices */
-    ALOGV("Apply paths [first=%u second=%u] to devices in 0x%x",
+    ALOGI("Apply paths [first=%u second=%u] to devices in 0x%x",
             first_id, second_id, devices);
 
     devices &= ~AUDIO_DEVICE_BIT_IN;
@@ -700,7 +693,7 @@ static void apply_paths_to_global_l(struct config_mgr *cm,
     struct device *pdev = cm->device_array.devices;
     struct device * const pend = pdev + cm->device_array.count;
 
-    ALOGV("Apply global paths [first=%u second=%u]", first_id, second_id);
+    ALOGI("Apply global paths [first=%u second=%u]", first_id, second_id);
 
     while (pdev < pend) {
         if (pdev->type == 0) {
@@ -723,7 +716,7 @@ void apply_route( const struct hw_stream *stream, uint32_t devices )
     struct stream *s = (struct stream *)stream;
     struct config_mgr *cm = s->cm;
 
-    ALOGV("apply_route(%p) devices=0x%x", stream, devices);
+    ALOGI("apply_route(%p) devices=0x%x", stream, devices);
 
     if (devices != 0) {
         if (devices & AUDIO_DEVICE_BIT_IN) {
@@ -827,7 +820,7 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc)
         ret = set_vol_ctl(s, &s->controls.volume_right, right_pc);
     }
 
-    ALOGV_IF(ret == 0, "set_hw_volume: L=%d%% R=%d%%", left_pc, right_pc);
+    ALOGI_IF(ret == 0, "set_hw_volume: L=%d%% R=%d%%", left_pc, right_pc);
 
     return ret;
 }
@@ -858,7 +851,7 @@ static bool open_stream_l(struct config_mgr *cm, struct stream *s)
         }
         return true;
     } else {
-        ALOGV("stream at maximum refcount %d", s->ref_count);
+        ALOGI("stream at maximum refcount %d", s->ref_count);
         return false;
     }
 }
@@ -873,7 +866,7 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
     const bool pcm = audio_is_linear_pcm(config->format);
     enum stream_type type;
 
-    ALOGV("+get_stream devices=0x%x flags=0x%x format=0x%x",
+    ALOGI("+get_stream devices=0x%x flags=0x%x format=0x%x",
                             devices, flags, config->format );
 
     if (devices & AUDIO_DEVICE_BIT_IN) {
@@ -884,7 +877,7 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
 
     pthread_mutex_lock(&cm->lock);
     for (i = cm->anon_stream_array.count - 1; i >= 0; --i) {
-        ALOGV("get_stream: require type=%d; try type=%d refcount=%d refmax=%d",
+        ALOGI("get_stream: require type=%d; try type=%d refcount=%d refmax=%d",
                     type, s[i].info.type, s[i].ref_count, s[i].max_ref_count );
         if (s[i].info.type == type) {
             if (open_stream_l(cm, &s[i])) {
@@ -898,7 +891,7 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
         // apply initial routing
         apply_route(&s[i].info, devices);
 
-        ALOGV("-get_stream =%p (refcount=%d)", &s[i].info,
+        ALOGI("-get_stream =%p (refcount=%d)", &s[i].info,
                                                 s[i].ref_count );
         return &s[i].info;
     } else {
@@ -912,7 +905,7 @@ const struct hw_stream *get_named_stream(struct config_mgr *cm,
 {
     struct stream *s;
 
-    ALOGV("+get_named_stream '%s'", name);
+    ALOGI("+get_named_stream '%s'", name);
 
     /* Streams can't be deleted so don't need to hold the lock during search */
     s = find_named_stream(cm, name);
@@ -926,7 +919,7 @@ const struct hw_stream *get_named_stream(struct config_mgr *cm,
     pthread_mutex_unlock(&cm->lock);
 
     if (s != NULL) {
-        ALOGV("-get_named_stream =%p (refcount=%d)", &s->info, s->ref_count );
+        ALOGI("-get_named_stream =%p (refcount=%d)", &s->info, s->ref_count );
         return &s->info;
     } else {
         ALOGE("-get_named_stream no suitable stream" );
@@ -941,7 +934,7 @@ bool is_named_stream_defined(struct config_mgr *cm, const char *name)
     /* Streams can't be deleted so don't need to hold the lock during search */
     s = find_named_stream(cm, name);
 
-    ALOGV("is_named_stream_defined '%s' = %d", name, (s != NULL));
+    ALOGI("is_named_stream_defined '%s' = %d", name, (s != NULL));
     return (s != NULL);
 }
 
@@ -949,7 +942,7 @@ void release_stream( const struct hw_stream* stream )
 {
     struct stream *s = (struct stream *)stream;
 
-    ALOGV("release_stream %p", stream );
+    ALOGI("release_stream %p", stream );
 
     if (s) {
         pthread_mutex_lock(&s->cm->lock);
@@ -968,7 +961,7 @@ uint32_t get_supported_output_devices( struct config_mgr *cm )
 {
     const uint32_t d = cm->supported_output_devices;
 
-    ALOGV("get_supported_output_devices=0x%x", d);
+    ALOGI("get_supported_output_devices=0x%x", d);
     return d;
 }
 
@@ -976,7 +969,7 @@ uint32_t get_supported_input_devices( struct config_mgr *cm )
 {
     const uint32_t d = cm->supported_input_devices;
 
-    ALOGV("get_supported_input_devices=0x%x", d);
+    ALOGI("get_supported_input_devices=0x%x", d);
     return d;
 }
 
@@ -994,7 +987,7 @@ int apply_use_case( const struct hw_stream* stream,
     int case_count;
     int ret;
 
-    ALOGV("apply_use_case(%p) %s=%s", stream, setting, case_name);
+    ALOGI("apply_use_case(%p) %s=%s", stream, setting, case_name);
 
     for (; usecase_count > 0; usecase_count--, puc++) {
         if (0 == strcmp(puc->name, setting)) {
@@ -1563,7 +1556,7 @@ static int find_path_name(struct parse_state *state, const char *name)
 
     for (i = array->count - 1; i >= 0; --i) {
         if (0 == strcmp(array->path_names[i], name)) {
-            ALOGV("Existing path '%s' id=%d", name, i);
+            ALOGI("Existing path '%s' id=%d", name, i);
             return i;   /* found - return existing index */
         }
     }
@@ -1586,7 +1579,7 @@ static int add_path_name(struct parse_state *state, const char *name)
         return -ENOMEM;
     }
 
-    ALOGV("New path '%s' id=%d", name, index);
+    ALOGI("New path '%s' id=%d", name, index);
     return index;
 }
 
@@ -1698,7 +1691,7 @@ static int make_byte_work_buffer(struct ctl *c,
         return ret;
     }
 
-    ALOGV("Added ctl '%s' byte array len %d", c->name, c->array_count);
+    ALOGI("Added ctl '%s' byte array len %d", c->name, c->array_count);
     return 0;
 }
 
@@ -1858,10 +1851,10 @@ static int parse_ctl_start(struct parse_state *state)
     int ret;
 
     if (state->current.path) {
-        ALOGV("parse_ctl_start:path ctl");
+        ALOGI("parse_ctl_start:path ctl");
         array = &state->current.path->ctl_array;
     } else {
-        ALOGV("parse_ctl_start:case ctl");
+        ALOGI("parse_ctl_start:case ctl");
         array = &state->current.scase->ctl_array;
     }
 
@@ -1957,7 +1950,7 @@ static int parse_init_start(struct parse_state *state)
     state->stack.entry[state->stack.index - 1].valid_subelem &=
         ~(BIT(e_elem_pre_init) | BIT(e_elem_init));
 
-    ALOGV("Added init path");
+    ALOGI("Added init path");
     return 0;
 }
 
@@ -1976,13 +1969,13 @@ static int parse_preinit_start(struct parse_state *state)
      */
     state->current.path = &state->preinit_path;
 
-    ALOGV("Started <pre_init>");
+    ALOGI("Started <pre_init>");
     return 0;
 }
 
 static int parse_preinit_end(struct parse_state *state)
 {
-    ALOGV("Applying <pre_init>");
+    ALOGI("Applying <pre_init>");
 
     state->current.path = NULL;
 
@@ -2030,7 +2023,7 @@ static int probe_config_file(struct parse_state *state)
     FILE *fp;
     int ret;
 
-    ALOGV("+probe_config_file");
+    ALOGI("+probe_config_file");
 
     fp = fopen(state->init_probe.file, "r");
     while (fp == NULL) {
@@ -2074,7 +2067,7 @@ static int probe_config_file(struct parse_state *state)
          * We are stopping the Parser as we got new codec xml file
          * and we will restart the parser with that new file
          */
-        ALOGV("Got new config file %s", state->init_probe.new_xml_file);
+        ALOGI("Got new config file %s", state->init_probe.new_xml_file);
         XML_StopParser(state->parser,XML_TRUE);
         ret = 0;
     }
@@ -2148,7 +2141,7 @@ static int parse_path_start(struct parse_state *state)
 
     state->current.path = path;
 
-    ALOGV("Added path '%s' id=%d", name, id);
+    ALOGI("Added path '%s' id=%d", name, id);
     return 0;
 }
 
@@ -2174,7 +2167,7 @@ static int parse_case_start(struct parse_state *state)
 
     state->current.scase = sc;
 
-    ALOGV("Added case '%s' to '%s'", name, puc->name);
+    ALOGI("Added case '%s' to '%s'", name, puc->name);
     return 0;
 }
 
@@ -2199,7 +2192,7 @@ static int parse_usecase_start(struct parse_state *state)
 
     state->current.usecase = puc;
 
-    ALOGV("Added usecase '%s'", name);
+    ALOGI("Added usecase '%s'", name);
 
     return 0;
 }
@@ -2235,7 +2228,7 @@ static int parse_set_start(struct parse_state *state)
         return -ENOMEM;
     }
 
-    ALOGV("Added constant '%s'=%s", name, val);
+    ALOGI("Added constant '%s'=%s", name, val);
 
     return 0;
 }
@@ -2256,11 +2249,11 @@ static int parse_enable_disable_start(struct parse_state *state, bool is_enable)
     }
 
     if (is_enable) {
-        ALOGV("Add enable path '%s' (id=%d)",
+        ALOGI("Add enable path '%s' (id=%d)",
                                 state->path_name_array.path_names[i], i);
         state->current.stream->enable_path = i;
     } else {
-        ALOGV("Add disable path '%s' (id=%d)",
+        ALOGI("Add disable path '%s' (id=%d)",
                                 state->path_name_array.path_names[i], i);
         state->current.stream->disable_path = i;
     }
@@ -2362,7 +2355,7 @@ static int parse_stream_ctl_start(struct parse_state *state)
 
     ctl_set_ref(&streamctl->ref, ctl);
 
-    ALOGV("(%p) Added control '%s' function '%s' range %d-%d",
+    ALOGI("(%p) Added control '%s' function '%s' range %d-%d",
                 state->current.stream,
                 name, function, streamctl->min, streamctl->max);
 
@@ -2481,7 +2474,7 @@ static int parse_stream_start(struct parse_state *state)
     s->info.device_number = device;
     s->max_ref_count = maxref;
 
-    ALOGV("Added stream %s type=%u card=%u device=%u max_ref=%u",
+    ALOGI("Added stream %s type=%u card=%u device=%u max_ref=%u",
                     s->name ? s->name : "",
                     s->info.type, s->info.card_number, s->info.device_number,
                     s->max_ref_count );
@@ -2535,7 +2528,7 @@ static int parse_device_start(struct parse_state *state)
         *existing_devices |= device_flag;
     }
 
-    ALOGV("Add device '%s'", dev_name);
+    ALOGI("Add device '%s'", dev_name);
 
     d = new_device(array, device_flag);
     if (d == NULL) {
@@ -2597,7 +2590,7 @@ static int get_card_id_for_name(const char* name, uint32_t *id)
                 char t_name[128];
                 if (get_card_name_for_id(t_id, t_name, sizeof(t_name)) == 0 &&
                         strcmp(t_name, name) == 0) {
-                    ALOGV("Found card %u with name %s", t_id, name);
+                    ALOGI("Found card %u with name %s", t_id, name);
                     *id = t_id;
                     ret = 0;
                     break;
@@ -2613,7 +2606,7 @@ static int parse_mixer_start(struct parse_state *state)
 {
     uint32_t card = MIXER_CARD_DEFAULT;
 
-    ALOGV("parse_mixer_start");
+    ALOGI("parse_mixer_start");
     if (attrib_to_uint(&card, state, e_attrib_card) == 0) {
         if (state->attribs.value[e_attrib_name] != NULL) {
             ALOGE("Mixer must be configured by only one of 'card' OR 'name'. Both provided.");
@@ -2624,7 +2617,7 @@ static int parse_mixer_start(struct parse_state *state)
         return -EINVAL;
     }
 
-    ALOGV("Opening mixer card %u", card);
+    ALOGI("Opening mixer card %u", card);
 
     state->cm->mixer = mixer_open(card);
 
@@ -2640,7 +2633,7 @@ static int parse_mixer_start(struct parse_state *state)
 
 static int parse_mixer_end(struct parse_state *state)
 {
-    ALOGV("parse_mixer_end");
+    ALOGI("parse_mixer_end");
 
     /* Now we can allow all other root elements but not another <mixer> */
     state->stack.entry[state->stack.index - 1].valid_subelem =
@@ -2725,7 +2718,7 @@ static void parse_section_start(void *data, const XML_Char *name,
         return;
     }
 
-    ALOGV("parse start <%s>", name );
+    ALOGI("parse start <%s>", name );
 
     /* Find element in list of elements currently valid */
     for (i = 0; i < e_elem_count; ++i) {
@@ -2768,7 +2761,7 @@ static void parse_section_end(void *data, const XML_Char *name)
         return;
     }
 
-    ALOGV("parse end <%s>", name );
+    ALOGI("parse end <%s>", name );
 
     if (elem_table[i].end_fn) {
         state->parse_error = (*elem_table[i].end_fn)(state);
@@ -2824,7 +2817,7 @@ static int open_config_file(struct parse_state *state, const char *file)
     }
     state->cur_xml_file = strdup(file);
 
-    ALOGV("Reading configuration from %s\n", file);
+    ALOGI("Reading configuration from %s\n", file);
     state->file = fopen(file, "r");
     if (state->file) {
         return 0;
@@ -2894,18 +2887,18 @@ static void print_ctls(const struct config_mgr *cm)
     if (!cm)
         return;
 
-    ALOGV("%d devices", cm->device_array.count);
+    ALOGI("%d devices", cm->device_array.count);
     for (dev_idx = 0; dev_idx < cm->device_array.count; dev_idx++) {
         dev = &cm->device_array.devices[dev_idx];
         path_array = &dev->path_array;
-        ALOGV("Device %d: type 0x%x, %d paths",
+        ALOGI("Device %d: type 0x%x, %d paths",
                 dev_idx, dev->type, path_array->count);
         for (path_idx = 0; path_idx < path_array->count; path_idx++) {
             ctl_array = &path_array->paths[path_idx].ctl_array;
-            ALOGV("Path %d: %d ctls", path_idx, ctl_array->count);
+            ALOGI("Path %d: %d ctls", path_idx, ctl_array->count);
             for (ctl_idx = 0; ctl_idx < ctl_array->count; ctl_idx++) {
                 c = &ctl_array->ctls[ctl_idx];
-                ALOGV("Ctl %d: "
+                ALOGI("Ctl %d: "
                         "name %s, "
                         "index %d, "
                         "array_count %d, "
@@ -2919,17 +2912,17 @@ static void print_ctls(const struct config_mgr *cm)
                 switch (c->type) {
                 case MIXER_CTL_TYPE_BOOL:
                 case MIXER_CTL_TYPE_INT:
-                    ALOGV("int: 0x%x", c->value.integer);
+                    ALOGI("int: 0x%x", c->value.integer);
                     break;
                 case MIXER_CTL_TYPE_BYTE:
                     if (c->data_file_name) {
-                        ALOGV("file: %s", c->data_file_name);
+                        ALOGI("file: %s", c->data_file_name);
                     } else {
-                        ALOGV("byte[0]: %d", c->value.data[0]);
+                        ALOGI("byte[0]: %d", c->value.data[0]);
                     }
                     break;
                 default:
-                    ALOGV("string: \"%s\"", c->value.string);
+                    ALOGI("string: \"%s\"", c->value.string);
                     break;
                 }
             }
@@ -2988,7 +2981,7 @@ static int parse_config_file(struct config_mgr *cm, const char *file_name)
                 fclose(state->file);
             }
 
-            ALOGV("Opening new XML file");
+            ALOGI("Opening new XML file");
             ret = open_config_file(state, state->init_probe.new_xml_file);
         }
     } while (state->init_probe.new_xml_file != NULL);
