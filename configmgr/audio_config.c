@@ -2677,6 +2677,7 @@ static int extract_attribs(struct parse_state *state, int elem_index)
     memset(&state->attribs.value, 0, sizeof(state->attribs.value));
 
     while (attribs[0] != NULL) {
+        ALOGI("Parsing attribute '%s' = '%s'", attribs[0], attribs[1]);
         for (i = 0; i < e_attrib_count; ++i ) {
             if ((BIT(i) & valid_attribs) != 0) {
                 if (0 == strcmp(attribs[0], attrib_table[i].name)) {
@@ -2696,6 +2697,7 @@ static int extract_attribs(struct parse_state *state, int elem_index)
 
     if (required_attribs != 0) {
         for (i = 0; i < e_attrib_count; ++i ) {
+            ALOGI("required_attribs != 0, i = %d, attrib = '%s'", i, attrib_table[i].name);
             if ((required_attribs & BIT(i)) != 0) {
                 ALOGE("Attribute '%s' required", attrib_table[i].name);
             }
