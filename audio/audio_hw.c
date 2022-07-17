@@ -23,6 +23,7 @@
 /*#define LOG_NDEBUG 0*/
 
 #include <errno.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -47,6 +48,7 @@
 #include <tinycompress/tinycompress.h>
 #endif
 
+#include <audio_utils/clock.h>
 #include <audio_utils/resampler.h>
 
 #include <tinyhal/audio_config.h>
@@ -158,6 +160,8 @@ struct stream_out_pcm {
 
     uint32_t hw_sample_rate;    /* Actual sample rate of hardware */
     int hw_channel_count;       /* Actual number of output channels */
+    unsigned int frames_written;
+    struct timespec timestamp;
 };
 
 #ifdef TINYHAL_COMPRESS_PLAYBACK
@@ -745,7 +749,7 @@ static int start_output_pcm(struct stream_out_pcm *out)
 
     out->pcm = pcm_open(out->common.hw->card_number,
                         out->common.hw->device_number,
-                        PCM_OUT,
+                        PCM_OUT | PCM_MONOTONIC,
                         &config);
 
     if (out->pcm && !pcm_is_ready(out->pcm)) {
@@ -769,6 +773,51 @@ static int out_pcm_standby(struct audio_stream *stream)
     pthread_mutex_unlock(&out->common.lock);
 
     return 0;
+}
+
+static void timestamp_adjust(struct timespec* ts, ssize_t frames, uint32_t sampling_rate) {
+    /* This function assumes the adjustment (in nsec) is less than the max value of long,
+     * which for 32-bit long this is 2^31 * 1e-9 seconds, slightly over 2 seconds.
+     * For 64-bit long it is  9e+9 seconds. */
+    long adj_nsec = (frames / (float) sampling_rate) * 1E9L;
+
+    ts->tv_nsec += adj_nsec;
+
+    while (ts->tv_nsec > 1E9L) {
+        ts->tv_sec++;
+        ts->tv_nsec -= 1E9L;
+    }
+
+    if (ts->tv_nsec < 0) {
+        ts->tv_sec--;
+        ts->tv_nsec += 1E9L;
+    }
+}
+
+/* Helper function to get PCM hardware timestamp.
+ * Only the field 'timestamp' of argument 'ts' is updated. */
+static int get_pcm_timestamp(struct pcm* pcm, uint32_t sample_rate,
+                             struct timespec *timestamp, bool is_output) {
+    int ret = 0;
+    unsigned int available;
+    ssize_t frames;
+
+    if (pcm_get_htimestamp(pcm, &available, timestamp) < 0) {
+        ALOGE("Error getting PCM timestamp!");
+        timestamp->tv_sec = 0;
+        timestamp->tv_nsec = 0;
+        return -EINVAL;
+    }
+
+    if (is_output) {
+        frames = pcm_get_buffer_size(pcm) - available;
+    } else {
+        frames = -available; /* rewind timestamp */
+    }
+
+    timestamp_adjust(timestamp, frames, sample_rate);
+
+    return ret;
 }
 
 static ssize_t out_pcm_write(struct audio_stream_out *stream, const void *buffer,
@@ -801,6 +850,10 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream, const void *buffer
 
     ret = pcm_write(out->pcm, buffer, bytes);
     ALOGV_IF(ret < 0, "out_pcm_write: pcm_write failed: %d", ret);
+    if (ret >= 0) {
+        out->frames_written += pcm_bytes_to_frames(out->pcm, bytes);
+        get_pcm_timestamp(out->pcm, out->common.sample_rate, &out->timestamp, true /*is_output*/);
+    }
 
 exit:
     pthread_mutex_unlock(&out->common.lock);
@@ -818,6 +871,25 @@ static int out_pcm_get_render_position(const struct audio_stream_out *stream,
     return -ENOSYS;
 }
 
+static int out_pcm_get_presentation_position(const struct audio_stream_out *stream,
+                                             uint64_t *frames, struct timespec *timestamp)
+{
+    if (stream == NULL || frames == NULL || timestamp == NULL) {
+        return -EINVAL;
+    }
+    struct stream_out_pcm *out = (struct stream_out_pcm *)stream;
+
+    ALOGV("+out_pcm_get_presentation_position(%p)", stream);
+
+    *frames = out->frames_written;
+    *timestamp = out->timestamp;
+    ALOGV("%s: frames: %" PRIu64 ", timestamp (nsec): %" PRIu64, __func__, *frames,
+          audio_utils_ns_from_timespec(timestamp));
+
+    ALOGV("-out_pcm_get_presentation_position(%p)", stream);
+    return 0;
+}
+
 static void do_close_out_pcm(struct audio_stream_out *stream)
 {
     out_pcm_standby(&stream->common);
@@ -831,6 +903,7 @@ static int do_init_out_pcm(struct stream_out_pcm *out,
     out->common.stream.common.standby = out_pcm_standby;
     out->common.stream.write = out_pcm_write;
     out->common.stream.get_render_position = out_pcm_get_render_position;
+    out->common.stream.get_presentation_position = out_pcm_get_presentation_position;
 
     out->common.buffer_size = out_pcm_cfg_period_size(out) * out->common.frame_size;
 
