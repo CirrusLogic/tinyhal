@@ -2231,6 +2231,15 @@ static int adev_open_input_stream_v3(struct audio_hw_device *dev,
 
     *stream_in = NULL;
 
+    devices &= AUDIO_DEVICE_IN_ALL;
+    const struct hw_stream *hw = get_stream(adev->cm, devices, 0, config);
+    if (!hw) {
+        ALOGE("No suitable input stream for devices=0x%x flags=0x%x format=0x%x",
+              devices, flags, config->format);
+        ret = -EINVAL;
+        goto fail;
+    }
+
     /*
      * We don't open a config manager stream here because we don't yet
      * know what input_source to use. Defer until Android sends us an
@@ -2244,8 +2253,7 @@ static int adev_open_input_stream_v3(struct audio_hw_device *dev,
     }
 
     in->common.dev = adev;
-
-    devices &= AUDIO_DEVICE_IN_ALL;
+    in->common.hw = hw;
     ret = do_init_in_common(&in->common, config, devices);
     if (ret < 0) {
         goto fail;
