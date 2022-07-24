@@ -226,6 +226,9 @@ struct stream_in_common {
     int input_source;
 
     nsecs_t last_read_ns;
+
+    struct timespec timestamp;
+    unsigned int frames_read;
 };
 
 struct stream_in_pcm {
@@ -1452,6 +1455,22 @@ static uint32_t in_get_input_frames_lost(struct audio_stream_in *stream)
     return 0;
 }
 
+static int in_get_capture_position(const struct audio_stream_in* stream, int64_t* frames,
+                                   int64_t* time) {
+    if (stream == NULL || frames == NULL || time == NULL) {
+        return -EINVAL;
+    }
+    struct stream_in_common *in = (struct stream_in_common *)stream;
+    ALOGV("+in_get_capture_position(%p)", stream);
+
+    *frames = in->frames_read;
+    *time = audio_utils_ns_from_timespec(&in->timestamp);
+    ALOGV("%s: frames_read: %" PRIu64 ", timestamp (nsec): %" PRIu64, __func__, *frames, *time);
+
+    ALOGV("-in_get_capture_position(%p)", stream);
+    return 0;
+}
+
 static int in_add_audio_effect(const struct audio_stream *stream,
                                effect_handle_t effect)
 {
@@ -1545,6 +1564,7 @@ static int do_init_in_common(struct stream_in_common *in,
     in->stream.common.remove_audio_effect = in_remove_audio_effect;
     in->stream.set_gain = in_set_gain;
     in->stream.get_input_frames_lost = in_get_input_frames_lost;
+    in->stream.get_capture_position = in_get_capture_position;
 
     /* Init requested stream config */
     in->format = config->format;
@@ -1800,7 +1820,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 
     in->pcm = pcm_open(in->common.hw->card_number,
                        in->common.hw->device_number,
-                       PCM_IN,
+                       PCM_IN | PCM_MONOTONIC,
                        &config);
 
     if (!in->pcm || !pcm_is_ready(in->pcm)) {
@@ -1951,6 +1971,11 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void *buffer,
         ret = read_resampled_frames(in, buffer, frames_rq);
     } else {
         ret = pcm_read(in->pcm, buffer, bytes);
+    }
+
+    if (ret >= 0) {
+        in->common.frames_read += frames_rq;
+        get_pcm_timestamp(in->pcm, in->common.sample_rate, &in->common.timestamp, false /*is_output*/);
     }
 
     /* Assume any non-negative return is a successful read */
