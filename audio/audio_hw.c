@@ -23,6 +23,7 @@
 /*#define LOG_NDEBUG 0*/
 
 #include <errno.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -47,6 +48,7 @@
 #include <tinycompress/tinycompress.h>
 #endif
 
+#include <audio_utils/clock.h>
 #include <audio_utils/resampler.h>
 
 #include <tinyhal/audio_config.h>
@@ -158,6 +160,8 @@ struct stream_out_pcm {
 
     uint32_t hw_sample_rate;    /* Actual sample rate of hardware */
     int hw_channel_count;       /* Actual number of output channels */
+    unsigned int frames_written;
+    struct timespec timestamp;
 };
 
 #ifdef TINYHAL_COMPRESS_PLAYBACK
@@ -222,6 +226,9 @@ struct stream_in_common {
     int input_source;
 
     nsecs_t last_read_ns;
+
+    struct timespec timestamp;
+    unsigned int frames_read;
 };
 
 struct stream_in_pcm {
@@ -745,7 +752,7 @@ static int start_output_pcm(struct stream_out_pcm *out)
 
     out->pcm = pcm_open(out->common.hw->card_number,
                         out->common.hw->device_number,
-                        PCM_OUT,
+                        PCM_OUT | PCM_MONOTONIC,
                         &config);
 
     if (out->pcm && !pcm_is_ready(out->pcm)) {
@@ -769,6 +776,51 @@ static int out_pcm_standby(struct audio_stream *stream)
     pthread_mutex_unlock(&out->common.lock);
 
     return 0;
+}
+
+static void timestamp_adjust(struct timespec* ts, ssize_t frames, uint32_t sampling_rate) {
+    /* This function assumes the adjustment (in nsec) is less than the max value of long,
+     * which for 32-bit long this is 2^31 * 1e-9 seconds, slightly over 2 seconds.
+     * For 64-bit long it is  9e+9 seconds. */
+    long adj_nsec = (frames / (float) sampling_rate) * 1E9L;
+
+    ts->tv_nsec += adj_nsec;
+
+    while (ts->tv_nsec > 1E9L) {
+        ts->tv_sec++;
+        ts->tv_nsec -= 1E9L;
+    }
+
+    if (ts->tv_nsec < 0) {
+        ts->tv_sec--;
+        ts->tv_nsec += 1E9L;
+    }
+}
+
+/* Helper function to get PCM hardware timestamp.
+ * Only the field 'timestamp' of argument 'ts' is updated. */
+static int get_pcm_timestamp(struct pcm* pcm, uint32_t sample_rate,
+                             struct timespec *timestamp, bool is_output) {
+    int ret = 0;
+    unsigned int available;
+    ssize_t frames;
+
+    if (pcm_get_htimestamp(pcm, &available, timestamp) < 0) {
+        ALOGE("Error getting PCM timestamp!");
+        timestamp->tv_sec = 0;
+        timestamp->tv_nsec = 0;
+        return -EINVAL;
+    }
+
+    if (is_output) {
+        frames = pcm_get_buffer_size(pcm) - available;
+    } else {
+        frames = -available; /* rewind timestamp */
+    }
+
+    timestamp_adjust(timestamp, frames, sample_rate);
+
+    return ret;
 }
 
 static ssize_t out_pcm_write(struct audio_stream_out *stream, const void *buffer,
@@ -801,6 +853,10 @@ static ssize_t out_pcm_write(struct audio_stream_out *stream, const void *buffer
 
     ret = pcm_write(out->pcm, buffer, bytes);
     ALOGV_IF(ret < 0, "out_pcm_write: pcm_write failed: %d", ret);
+    if (ret >= 0) {
+        out->frames_written += pcm_bytes_to_frames(out->pcm, bytes);
+        get_pcm_timestamp(out->pcm, out->common.sample_rate, &out->timestamp, true /*is_output*/);
+    }
 
 exit:
     pthread_mutex_unlock(&out->common.lock);
@@ -818,6 +874,25 @@ static int out_pcm_get_render_position(const struct audio_stream_out *stream,
     return -ENOSYS;
 }
 
+static int out_pcm_get_presentation_position(const struct audio_stream_out *stream,
+                                             uint64_t *frames, struct timespec *timestamp)
+{
+    if (stream == NULL || frames == NULL || timestamp == NULL) {
+        return -EINVAL;
+    }
+    struct stream_out_pcm *out = (struct stream_out_pcm *)stream;
+
+    ALOGV("+out_pcm_get_presentation_position(%p)", stream);
+
+    *frames = out->frames_written;
+    *timestamp = out->timestamp;
+    ALOGV("%s: frames: %" PRIu64 ", timestamp (nsec): %" PRIu64, __func__, *frames,
+          audio_utils_ns_from_timespec(timestamp));
+
+    ALOGV("-out_pcm_get_presentation_position(%p)", stream);
+    return 0;
+}
+
 static void do_close_out_pcm(struct audio_stream_out *stream)
 {
     out_pcm_standby(&stream->common);
@@ -831,6 +906,7 @@ static int do_init_out_pcm(struct stream_out_pcm *out,
     out->common.stream.common.standby = out_pcm_standby;
     out->common.stream.write = out_pcm_write;
     out->common.stream.get_render_position = out_pcm_get_render_position;
+    out->common.stream.get_presentation_position = out_pcm_get_presentation_position;
 
     out->common.buffer_size = out_pcm_cfg_period_size(out) * out->common.frame_size;
 
@@ -1379,6 +1455,22 @@ static uint32_t in_get_input_frames_lost(struct audio_stream_in *stream)
     return 0;
 }
 
+static int in_get_capture_position(const struct audio_stream_in* stream, int64_t* frames,
+                                   int64_t* time) {
+    if (stream == NULL || frames == NULL || time == NULL) {
+        return -EINVAL;
+    }
+    struct stream_in_common *in = (struct stream_in_common *)stream;
+    ALOGV("+in_get_capture_position(%p)", stream);
+
+    *frames = in->frames_read;
+    *time = audio_utils_ns_from_timespec(&in->timestamp);
+    ALOGV("%s: frames_read: %" PRIu64 ", timestamp (nsec): %" PRIu64, __func__, *frames, *time);
+
+    ALOGV("-in_get_capture_position(%p)", stream);
+    return 0;
+}
+
 static int in_add_audio_effect(const struct audio_stream *stream,
                                effect_handle_t effect)
 {
@@ -1472,6 +1564,7 @@ static int do_init_in_common(struct stream_in_common *in,
     in->stream.common.remove_audio_effect = in_remove_audio_effect;
     in->stream.set_gain = in_set_gain;
     in->stream.get_input_frames_lost = in_get_input_frames_lost;
+    in->stream.get_capture_position = in_get_capture_position;
 
     /* Init requested stream config */
     in->format = config->format;
@@ -1727,7 +1820,7 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
 
     in->pcm = pcm_open(in->common.hw->card_number,
                        in->common.hw->device_number,
-                       PCM_IN,
+                       PCM_IN | PCM_MONOTONIC,
                        &config);
 
     if (!in->pcm || !pcm_is_ready(in->pcm)) {
@@ -1878,6 +1971,11 @@ static ssize_t do_in_pcm_read(struct audio_stream_in *stream, void *buffer,
         ret = read_resampled_frames(in, buffer, frames_rq);
     } else {
         ret = pcm_read(in->pcm, buffer, bytes);
+    }
+
+    if (ret >= 0) {
+        in->common.frames_read += frames_rq;
+        get_pcm_timestamp(in->pcm, in->common.sample_rate, &in->common.timestamp, false /*is_output*/);
     }
 
     /* Assume any non-negative return is a successful read */
@@ -2039,16 +2137,13 @@ static int do_init_in_pcm(struct stream_in_pcm *in,
 /*********************************************************************
  * Stream open and close
  *********************************************************************/
-static int adev_open_output_stream(struct audio_hw_device *dev,
-                                   audio_io_handle_t handle,
-                                   audio_devices_t devices,
-                                   audio_output_flags_t flags,
-                                   struct audio_config *config,
-                                   struct audio_stream_out **stream_out
-#ifdef AUDIO_DEVICE_API_VERSION_3_0
-                                   , const char *address
-#endif
-                                   )
+static int adev_open_output_stream_v3(struct audio_hw_device *dev,
+                                      audio_io_handle_t handle,
+                                      audio_devices_t devices,
+                                      audio_output_flags_t flags,
+                                      struct audio_config *config,
+                                      struct audio_stream_out **stream_out,
+                                      const char *address)
 {
     struct audio_device *adev = (struct audio_device *)dev;
     union {
@@ -2131,17 +2226,14 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
     (out->close)(stream);
 }
 
-static int adev_open_input_stream(struct audio_hw_device *dev,
-                                  audio_io_handle_t handle,
-                                  audio_devices_t devices,
-                                  struct audio_config *config,
-                                  struct audio_stream_in **stream_in
-#ifdef AUDIO_DEVICE_API_VERSION_3_0
-                                  , audio_input_flags_t flags,
-                                  const char *address,
-                                  audio_source_t source
-#endif
-                                  )
+static int adev_open_input_stream_v3(struct audio_hw_device *dev,
+                                     audio_io_handle_t handle,
+                                     audio_devices_t devices,
+                                     struct audio_config *config,
+                                     struct audio_stream_in **stream_in,
+                                     audio_input_flags_t flags,
+                                     const char *address,
+                                     audio_source_t source)
 {
     struct audio_device *adev = (struct audio_device *)dev;
     struct stream_in_pcm *in = NULL;
@@ -2164,6 +2256,15 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 
     *stream_in = NULL;
 
+    devices &= AUDIO_DEVICE_IN_ALL;
+    const struct hw_stream *hw = get_stream(adev->cm, devices, 0, config);
+    if (!hw) {
+        ALOGE("No suitable input stream for devices=0x%x flags=0x%x format=0x%x",
+              devices, flags, config->format);
+        ret = -EINVAL;
+        goto fail;
+    }
+
     /*
      * We don't open a config manager stream here because we don't yet
      * know what input_source to use. Defer until Android sends us an
@@ -2177,8 +2278,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     }
 
     in->common.dev = adev;
-
-    devices &= AUDIO_DEVICE_IN_ALL;
+    in->common.hw = hw;
     ret = do_init_in_common(&in->common, config, devices);
     if (ret < 0) {
         goto fail;
@@ -2197,6 +2297,33 @@ fail:
     ALOGV("-adev_open_input_stream (%d)", ret);
     return ret;
 }
+
+#ifdef AUDIO_DEVICE_API_VERSION_3_0
+#   define adev_open_output_stream  adev_open_output_stream_v3
+#   define adev_open_input_stream   adev_open_input_stream_v3
+#else
+static int adev_open_output_stream(struct audio_hw_device *dev,
+                                   audio_io_handle_t handle,
+                                   audio_devices_t devices,
+                                   audio_output_flags_t flags,
+                                   struct audio_config *config,
+                                   struct audio_stream_out **stream_out)
+
+{
+    adev_open_output_stream_v3(dev, handle, devices, flags, config, stream_out, NULL);
+}
+
+static int adev_open_input_stream(struct audio_hw_device *dev,
+                                  audio_io_handle_t handle,
+                                  audio_devices_t devices,
+                                  struct audio_config *config,
+                                  struct audio_stream_in **stream_in)
+
+{
+    adev_open_input_stream_v3(dev, handle, devices, config, stream_in, 0, NULL, 0);
+}
+#endif
+
 
 static void adev_close_input_stream(struct audio_hw_device *dev,
                                     struct audio_stream_in *stream)
