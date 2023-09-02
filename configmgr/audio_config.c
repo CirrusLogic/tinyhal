@@ -163,6 +163,8 @@ struct codec_probe {
 struct device {
     uint32_t    type;               /* 0 is reserved for the global device */
     int         use_count;          /* counts total streams using this device */
+    uint32_t card_number;
+    uint32_t device_number;
     struct dyn_array path_array;
 };
 
@@ -1133,7 +1135,8 @@ static const struct parse_element elem_table[e_elem_count] = {
 
     [e_elem_device] =    {
         .name = "device",
-        .valid_attribs = BIT(e_attrib_name),
+        .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_card)
+                            | BIT(e_attrib_cardname) | BIT(e_attrib_device),
         .required_attribs = BIT(e_attrib_name),
         .valid_subelem = BIT(e_elem_path),
         .start_fn = parse_device_start,
@@ -2505,8 +2508,11 @@ static int parse_device_start(struct parse_state *state)
     struct dyn_array *array = &state->cm->device_array;
     uint32_t device_flag;
     uint32_t *existing_devices;
+    uint32_t card = UINT_MAX;
+    uint32_t device_number = UINT_MAX;
     const struct parse_device *p;
     struct device* d;
+    int ret;
 
     p = parse_match_device(dev_name);
 
@@ -2536,13 +2542,41 @@ static int parse_device_start(struct parse_state *state)
         *existing_devices |= device_flag;
     }
 
-    ALOGV("Add device '%s'", dev_name);
+    if (state->attribs.value[e_attrib_cardname] != NULL &&
+        state->attribs.value[e_attrib_card] != NULL) {
+        ALOGE("device must be configured by only one of 'card' OR 'cardname'. Both provided.");
+        return -EINVAL;
+    }
+
+    ret = attrib_to_uint(&card, state, e_attrib_card);
+    if (ret == -EINVAL) {
+        return ret;
+    }
+
+    if (state->attribs.value[e_attrib_cardname] != NULL &&
+        get_card_id_for_name(state->attribs.value[e_attrib_cardname], &card) != 0) {
+        return -EINVAL;
+    }
+
+    ret = attrib_to_uint(&device_number, state, e_attrib_device);
+    if (ret == -EINVAL) {
+        return ret;
+    }
+
+    if (card < UINT_MAX && device_number < UINT_MAX) {
+        ALOGV("Add device '%s' (card=%u device=%u)", dev_name, card, device_number);
+    } else {
+        ALOGV("Add device '%s'", dev_name);
+    }
 
     d = new_device(array, device_flag);
     if (d == NULL) {
         return -ENOMEM;
     }
     state->current.device = d;
+
+    d->card_number = card;
+    d->device_number = device_number;
 
     return 0;
 }
