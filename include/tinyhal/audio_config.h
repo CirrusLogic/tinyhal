@@ -32,6 +32,7 @@ struct mixer;
 struct mixer_ctl;
 struct config_mgr;
 struct audio_config;
+struct device;
 
 /** Stream type */
 enum stream_type {
@@ -186,6 +187,13 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc);
 int apply_use_case( const struct hw_stream* stream,
                     const char *setting,
                     const char *case_name);
+
+/** Get the ALSA card and device number associated to this device
+ * @return      0 if the device type has card and device numbers defined
+ * @return      -ENODEV if the device type has no card and device number defined
+ * @return      -ENOENT if the device type was not found
+ */
+int get_device_alsadev(struct config_mgr *cm, uint32_t type, uint32_t *cardnum, uint32_t *devnum);
 
 #if defined(__cplusplus)
 }  /* extern "C" */

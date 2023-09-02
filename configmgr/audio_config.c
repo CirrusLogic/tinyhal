@@ -1081,6 +1081,31 @@ int get_stream_constant_int32(const struct hw_stream *stream,
 }
 
 /*********************************************************************
+ * Device
+ *********************************************************************/
+
+int get_device_alsadev(struct config_mgr *cm, uint32_t type, uint32_t *cardnum, uint32_t *devnum)
+{
+    struct device *pdev = cm->device_array.devices;
+    int dev_count = cm->device_array.count;
+
+    while (dev_count > 0) {
+        if (pdev->type == type) {
+            cardnum = &pdev->card_number;
+            devnum = &pdev->device_number;
+            if (*cardnum < UINT_MAX && *devnum < UINT_MAX) {
+                return 0;
+            }
+            return -ENODEV;
+        }
+        --dev_count;
+        ++pdev;
+    }
+
+    return -ENOENT;
+}
+
+/*********************************************************************
  * Config file parsing
  *
  * To keep this simple we restrict the order that config file entries
