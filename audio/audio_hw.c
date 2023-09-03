@@ -126,7 +126,7 @@ struct stream_out_common {
 
     out_close_fn    close;
     struct audio_device *dev;
-    const struct hw_stream *hw;
+    struct hw_stream *hw;
 
     pthread_mutex_t lock;
 
@@ -203,7 +203,7 @@ struct stream_in_common {
 
     in_close_fn    close;
     struct audio_device *dev;
-    const struct hw_stream *hw;
+    struct hw_stream *hw;
 
     pthread_mutex_t lock;
 
@@ -1876,7 +1876,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
 {
     struct audio_config config;
     const char *stream_name;
-    const struct hw_stream *hw = NULL;
+    struct hw_stream *hw = NULL;
     const int new_source = atoi(value);
 
     *was_changed = false;
@@ -2159,7 +2159,7 @@ static int adev_open_output_stream_v3(struct audio_hw_device *dev,
           config->format, config->channel_mask, config->sample_rate, flags);
 
     devices &= AUDIO_DEVICE_OUT_ALL;
-    const struct hw_stream *hw = get_stream(adev->cm, devices, flags, config);
+    struct hw_stream *hw = get_stream(adev->cm, devices, flags, config);
     if (!hw) {
         ALOGE("No suitable output stream for devices=0x%x flags=0x%x format=0x%x",
               devices, flags, config->format);
@@ -2257,7 +2257,7 @@ static int adev_open_input_stream_v3(struct audio_hw_device *dev,
     *stream_in = NULL;
 
     devices &= AUDIO_DEVICE_IN_ALL;
-    const struct hw_stream *hw = get_stream(adev->cm, devices, 0, config);
+    struct hw_stream *hw = get_stream(adev->cm, devices, 0, config);
     if (!hw) {
         ALOGE("No suitable input stream for devices=0x%x flags=0x%x format=0x%x",
               devices, flags, config->format);

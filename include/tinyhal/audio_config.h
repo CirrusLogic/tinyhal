@@ -130,13 +130,13 @@ uint32_t get_supported_output_devices( struct config_mgr *cm );
  * Note that this only considers unnamed streams (those without a 'name'
  * attribute). For named streams use get_named_stream().
  */
-const struct hw_stream *get_stream(  struct config_mgr *cm,
+struct hw_stream *get_stream(  struct config_mgr *cm,
                                         const audio_devices_t devices,
                                         const audio_output_flags_t flags,
                                         const struct audio_config *config );
 
 /** Find a named custom stream and return a pointer to it */
-const struct hw_stream *get_named_stream(struct config_mgr *cm,
+struct hw_stream *get_named_stream(struct config_mgr *cm,
                                    const char *name);
 
 /** Return the value of a constant defined by a <set> element as a string

@@ -865,7 +865,7 @@ static bool open_stream_l(struct config_mgr *cm, struct stream *s)
     }
 }
 
-const struct hw_stream *get_stream(struct config_mgr *cm,
+struct hw_stream *get_stream(struct config_mgr *cm,
                                    const audio_devices_t devices,
                                    const audio_output_flags_t flags,
                                    const struct audio_config *config )
@@ -909,7 +909,7 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
     }
 }
 
-const struct hw_stream *get_named_stream(struct config_mgr *cm,
+struct hw_stream *get_named_stream(struct config_mgr *cm,
                                    const char *name)
 {
     struct stream *s;
