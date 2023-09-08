@@ -126,7 +126,7 @@ struct stream_out_common {
 
     out_close_fn    close;
     struct audio_device *dev;
-    const struct hw_stream *hw;
+    struct hw_stream *hw;
 
     pthread_mutex_t lock;
 
@@ -203,7 +203,7 @@ struct stream_in_common {
 
     in_close_fn    close;
     struct audio_device *dev;
-    const struct hw_stream *hw;
+    struct hw_stream *hw;
 
     pthread_mutex_t lock;
 
@@ -379,6 +379,9 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
 
     struct stream_out_common *out = (struct stream_out_common *)stream;
     struct audio_device *adev = out->dev;
+    static uint32_t cardold, devold;
+    static bool saved = false;
+    uint32_t cardnum, devnum;
     uint32_t v;
     int ret;
 
@@ -388,6 +391,23 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
 
     if (ret >= 0) {
         apply_route(out->hw, v);
+        if (get_device_alsadev(adev->cm, v, &cardnum, &devnum) < 0) {
+            if (saved) {
+                ALOGI("restoring params with card=%u dev=%u", cardold, devold);
+                out->hw->card_number = cardold;
+                out->hw->device_number = devold;
+            }
+        } else {
+            ALOGI("updating params with card=%u dev=%u", cardnum, devnum);
+            if (!saved) {
+                cardold = out->hw->card_number;
+                devold = out->hw->device_number;
+                ALOGI("saved params with card=%u dev=%u", cardold, devold);
+                saved = true;
+            }
+            out->hw->card_number = cardnum;
+            out->hw->device_number = devnum;
+        }
     }
 
     stream_invoke_usecases(out->hw, kvpairs);
@@ -735,6 +755,8 @@ static void out_pcm_fill_params(struct stream_out_pcm *out,
 /* Must be called with hw device and output stream mutexes locked */
 static int start_output_pcm(struct stream_out_pcm *out)
 {
+    struct config_mgr *cm = out->common.dev->cm;
+    uint32_t device, cardnum, devnum;
     int ret;
 
     struct pcm_config config = {
@@ -750,10 +772,21 @@ static int start_output_pcm(struct stream_out_pcm *out)
 
     ALOGV("+start_output_stream(%p)", out);
 
-    out->pcm = pcm_open(out->common.hw->card_number,
-                        out->common.hw->device_number,
-                        PCM_OUT | PCM_MONOTONIC,
-                        &config);
+    device = get_current_routes(out->common.hw);
+    ret = get_device_alsadev(cm, device, &cardnum, &devnum);
+    if (ret < 0) {
+        ALOGI("device = %u (not alsadev, ret=%d)", device, ret);
+        out->pcm = pcm_open(out->common.hw->card_number,
+                            out->common.hw->device_number,
+                            PCM_OUT | PCM_MONOTONIC,
+                            &config);
+    } else {
+        ALOGI("device = %u (alsadev)", device);
+        out->pcm = pcm_open(cardnum,
+                            devnum,
+                            PCM_OUT | PCM_MONOTONIC,
+                            &config);
+    }
 
     if (out->pcm && !pcm_is_ready(out->pcm)) {
         ALOGE("pcm_open(out) failed: %s", pcm_get_error(out->pcm));
@@ -1799,6 +1832,8 @@ static void in_pcm_fill_params(struct stream_in_pcm *in,
 /* Must be called with hw device and input stream mutexes locked */
 static int do_open_pcm_input(struct stream_in_pcm *in)
 {
+    struct config_mgr *cm = in->common.dev->cm;
+    uint32_t device, cardnum, devnum;
     struct pcm_config config;
     int ret;
 
@@ -1818,10 +1853,21 @@ static int do_open_pcm_input(struct stream_in_pcm *in)
     config.format = pcm_format_from_android_format(in->common.format),
     config.start_threshold = 0;
 
-    in->pcm = pcm_open(in->common.hw->card_number,
-                       in->common.hw->device_number,
-                       PCM_IN | PCM_MONOTONIC,
-                       &config);
+    device = get_current_routes(in->common.hw);
+    ret = get_device_alsadev(cm, device, &cardnum, &devnum);
+    if (ret < 0) {
+        ALOGV("device = %u (not alsadev, ret=%d)", device, ret);
+        in->pcm = pcm_open(in->common.hw->card_number,
+                           in->common.hw->device_number,
+                           PCM_IN | PCM_MONOTONIC,
+                           &config);
+    } else {
+        ALOGV("device = %u (alsadev)", device);
+        in->pcm = pcm_open(cardnum,
+                           devnum,
+                           PCM_IN | PCM_MONOTONIC,
+                           &config);
+    }
 
     if (!in->pcm || !pcm_is_ready(in->pcm)) {
         ALOGE_IF(in->pcm,"pcm_open(in) failed: %s", pcm_get_error(in->pcm));
@@ -1876,7 +1922,7 @@ static int change_input_source_locked(struct stream_in_pcm *in, const char *valu
 {
     struct audio_config config;
     const char *stream_name;
-    const struct hw_stream *hw = NULL;
+    struct hw_stream *hw = NULL;
     const int new_source = atoi(value);
 
     *was_changed = false;
@@ -2047,12 +2093,16 @@ static ssize_t in_pcm_read(struct audio_stream_in *stream, void *buffer,
 static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpairs)
 {
     struct stream_in_pcm *in = (struct stream_in_pcm *)stream;
+    struct config_mgr *cm = in->common.dev->cm;
     struct str_parms *parms;
     char value[32];
     uint32_t new_routing = 0;
     bool routing_changed;
     uint32_t devices;
     bool input_was_changed;
+    static uint32_t cardold, devold;
+    static bool saved = false;
+    uint32_t cardnum, devnum;
     int ret;
 
     ALOGV("+in_pcm_set_parameters(%p) '%s'", stream, kvpairs);
@@ -2091,6 +2141,23 @@ static int in_pcm_set_parameters(struct audio_stream *stream, const char *kvpair
         if (in->common.hw) {
             ALOGV("Apply routing=0x%x to input stream", new_routing);
             apply_route(in->common.hw, new_routing);
+            if (get_device_alsadev(cm, new_routing, &cardnum, &devnum) < 0) {
+                if (saved) {
+                    ALOGV("restoring params with card=%u dev=%u", cardold, devold);
+                    in->common.hw->card_number = cardold;
+                    in->common.hw->device_number = devold;
+                }
+            } else {
+                ALOGV("updating params with card=%u dev=%u", cardnum, devnum);
+                if (!saved) {
+                    cardold = in->common.hw->card_number;
+                    devold = in->common.hw->device_number;
+                    ALOGV("saved params with card=%u dev=%u", cardold, devold);
+                    saved = true;
+                }
+                in->common.hw->card_number = cardnum;
+                in->common.hw->device_number = devnum;
+	    }
         }
     }
 
@@ -2159,7 +2226,7 @@ static int adev_open_output_stream_v3(struct audio_hw_device *dev,
           config->format, config->channel_mask, config->sample_rate, flags);
 
     devices &= AUDIO_DEVICE_OUT_ALL;
-    const struct hw_stream *hw = get_stream(adev->cm, devices, flags, config);
+    struct hw_stream *hw = get_stream(adev->cm, devices, flags, config);
     if (!hw) {
         ALOGE("No suitable output stream for devices=0x%x flags=0x%x format=0x%x",
               devices, flags, config->format);
@@ -2257,7 +2324,7 @@ static int adev_open_input_stream_v3(struct audio_hw_device *dev,
     *stream_in = NULL;
 
     devices &= AUDIO_DEVICE_IN_ALL;
-    const struct hw_stream *hw = get_stream(adev->cm, devices, 0, config);
+    struct hw_stream *hw = get_stream(adev->cm, devices, 0, config);
     if (!hw) {
         ALOGE("No suitable input stream for devices=0x%x flags=0x%x format=0x%x",
               devices, flags, config->format);

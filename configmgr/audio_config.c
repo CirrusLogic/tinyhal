@@ -163,6 +163,8 @@ struct codec_probe {
 struct device {
     uint32_t    type;               /* 0 is reserved for the global device */
     int         use_count;          /* counts total streams using this device */
+    uint32_t card_number;
+    uint32_t device_number;
     struct dyn_array path_array;
 };
 
@@ -863,7 +865,7 @@ static bool open_stream_l(struct config_mgr *cm, struct stream *s)
     }
 }
 
-const struct hw_stream *get_stream(struct config_mgr *cm,
+struct hw_stream *get_stream(struct config_mgr *cm,
                                    const audio_devices_t devices,
                                    const audio_output_flags_t flags,
                                    const struct audio_config *config )
@@ -907,7 +909,7 @@ const struct hw_stream *get_stream(struct config_mgr *cm,
     }
 }
 
-const struct hw_stream *get_named_stream(struct config_mgr *cm,
+struct hw_stream *get_named_stream(struct config_mgr *cm,
                                    const char *name)
 {
     struct stream *s;
@@ -1079,6 +1081,31 @@ int get_stream_constant_int32(const struct hw_stream *stream,
 }
 
 /*********************************************************************
+ * Device
+ *********************************************************************/
+
+int get_device_alsadev(struct config_mgr *cm, uint32_t type, uint32_t *cardnum, uint32_t *devnum)
+{
+    struct device *pdev = cm->device_array.devices;
+    int dev_count = cm->device_array.count;
+
+    while (dev_count > 0) {
+        if (pdev->type == type) {
+            cardnum = &pdev->card_number;
+            devnum = &pdev->device_number;
+            if (*cardnum < UINT_MAX && *devnum < UINT_MAX) {
+                return 0;
+            }
+            return -ENODEV;
+        }
+        --dev_count;
+        ++pdev;
+    }
+
+    return -ENOENT;
+}
+
+/*********************************************************************
  * Config file parsing
  *
  * To keep this simple we restrict the order that config file entries
@@ -1133,7 +1160,8 @@ static const struct parse_element elem_table[e_elem_count] = {
 
     [e_elem_device] =    {
         .name = "device",
-        .valid_attribs = BIT(e_attrib_name),
+        .valid_attribs = BIT(e_attrib_name) | BIT(e_attrib_card)
+                            | BIT(e_attrib_cardname) | BIT(e_attrib_device),
         .required_attribs = BIT(e_attrib_name),
         .valid_subelem = BIT(e_elem_path),
         .start_fn = parse_device_start,
@@ -2505,8 +2533,11 @@ static int parse_device_start(struct parse_state *state)
     struct dyn_array *array = &state->cm->device_array;
     uint32_t device_flag;
     uint32_t *existing_devices;
+    uint32_t card = UINT_MAX;
+    uint32_t device_number = UINT_MAX;
     const struct parse_device *p;
     struct device* d;
+    int ret;
 
     p = parse_match_device(dev_name);
 
@@ -2536,13 +2567,41 @@ static int parse_device_start(struct parse_state *state)
         *existing_devices |= device_flag;
     }
 
-    ALOGV("Add device '%s'", dev_name);
+    if (state->attribs.value[e_attrib_cardname] != NULL &&
+        state->attribs.value[e_attrib_card] != NULL) {
+        ALOGE("device must be configured by only one of 'card' OR 'cardname'. Both provided.");
+        return -EINVAL;
+    }
+
+    ret = attrib_to_uint(&card, state, e_attrib_card);
+    if (ret == -EINVAL) {
+        return ret;
+    }
+
+    if (state->attribs.value[e_attrib_cardname] != NULL &&
+        get_card_id_for_name(state->attribs.value[e_attrib_cardname], &card) != 0) {
+        return -EINVAL;
+    }
+
+    ret = attrib_to_uint(&device_number, state, e_attrib_device);
+    if (ret == -EINVAL) {
+        return ret;
+    }
+
+    if (card < UINT_MAX && device_number < UINT_MAX) {
+        ALOGV("Add device '%s' (card=%u device=%u)", dev_name, card, device_number);
+    } else {
+        ALOGV("Add device '%s'", dev_name);
+    }
 
     d = new_device(array, device_flag);
     if (d == NULL) {
         return -ENOMEM;
     }
     state->current.device = d;
+
+    d->card_number = card;
+    d->device_number = device_number;
 
     return 0;
 }

@@ -32,6 +32,7 @@ struct mixer;
 struct mixer_ctl;
 struct config_mgr;
 struct audio_config;
+struct device;
 
 /** Stream type */
 enum stream_type {
@@ -129,13 +130,13 @@ uint32_t get_supported_output_devices( struct config_mgr *cm );
  * Note that this only considers unnamed streams (those without a 'name'
  * attribute). For named streams use get_named_stream().
  */
-const struct hw_stream *get_stream(  struct config_mgr *cm,
+struct hw_stream *get_stream(  struct config_mgr *cm,
                                         const audio_devices_t devices,
                                         const audio_output_flags_t flags,
                                         const struct audio_config *config );
 
 /** Find a named custom stream and return a pointer to it */
-const struct hw_stream *get_named_stream(struct config_mgr *cm,
+struct hw_stream *get_named_stream(struct config_mgr *cm,
                                    const char *name);
 
 /** Return the value of a constant defined by a <set> element as a string
@@ -186,6 +187,13 @@ int set_hw_volume( const struct hw_stream *stream, int left_pc, int right_pc);
 int apply_use_case( const struct hw_stream* stream,
                     const char *setting,
                     const char *case_name);
+
+/** Get the ALSA card and device number associated to this device
+ * @return      0 if the device type has card and device numbers defined
+ * @return      -ENODEV if the device type has no card and device number defined
+ * @return      -ENOENT if the device type was not found
+ */
+int get_device_alsadev(struct config_mgr *cm, uint32_t type, uint32_t *cardnum, uint32_t *devnum);
 
 #if defined(__cplusplus)
 }  /* extern "C" */
